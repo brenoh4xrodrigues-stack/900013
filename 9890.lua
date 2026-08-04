@@ -1,8 +1,8 @@
 --!nocheck
--- ==============================================================
--- MEOWLZZ FINDER V6 - Gold Edition (divisória correta, textos em cima)
--- ==============================================================
-
+-- ==========================================================
+-- MEOWLZZ FINDER V5 - soft gold glass UI, side rail, rounded
+-- same features as V4: auto joiner, refresh, clear logs, notifs
+-- ==========================================================
 local Players          = game:GetService("Players")
 local HttpService      = game:GetService("HttpService")
 local TeleportService  = game:GetService("TeleportService")
@@ -10,26 +10,30 @@ local CoreGui          = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
 local SoundService     = game:GetService("SoundService")
+local Debris           = game:GetService("Debris")
 
 local LP = Players.LocalPlayer
 if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Players.LocalPlayer end
 
--- ===== endpoints =====
+-- ===== anti-spy: keep endpoints out of tables / gc-scannable objects =====
 local _a = "https://meowlzjoiner.lovable.app/api/public/best?key=mz_7fQ4pR2xLb9VnKt3sYh8WcZ6dJ1uEaMg"
 local function API_URL() return _a end
 local JOINER_URL   = "https://meowlzz-hub-customizer.lovable.app/api/public/mz9k4x7q/hb"
 local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
 local HEARTBEAT    = 4
+local LOGO         = "rbxassetid://105194511752844"
 
--- ===== paleta ouro suave =====
-local GOLD       = Color3.fromRGB(233, 196, 106)
-local GOLD_SOFT  = Color3.fromRGB(255, 230, 170)
-local BG         = Color3.fromRGB(18, 16, 12)
-local BG2        = Color3.fromRGB(26, 23, 17)
-local TXT        = Color3.fromRGB(238, 233, 222)
-local DIM        = Color3.fromRGB(180, 172, 156)
+-- ===== palette (soft gold / warm glass) =====
+local GOLD      = Color3.fromRGB(240, 208, 130)
+local GOLD_SOFT = Color3.fromRGB(255, 238, 195)
+local GOLD_DEEP = Color3.fromRGB(196, 158, 84)
+local INK       = Color3.fromRGB(34, 27, 12)
+local BG        = Color3.fromRGB(20, 17, 12)
+local BG2       = Color3.fromRGB(32, 27, 19)
+local BG3       = Color3.fromRGB(44, 37, 25)
+local TXT       = Color3.fromRGB(242, 236, 224)
+local DIM       = Color3.fromRGB(160, 150, 132)
 
--- ===== HTTP helpers =====
 local function getRequestFn()
     local env = (getgenv and getgenv()) or _G
     return (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request)
@@ -65,7 +69,6 @@ local function httpPostJSON(url, tbl)
     return nil
 end
 
--- ===== formatação =====
 local function fmt(v)
     v = tonumber(v) or 0
     if v >= 1e9 then return string.format("%.2fB/s", v/1e9) end
@@ -87,17 +90,7 @@ local function ago(iso)
 end
 
 -- ===== config =====
-local cfg = {
-    minVal = 1,
-    unit = "M",
-    good = true,
-    secret = true,
-    og = true,
-    autoJoin = false,
-    autoForce = false,
-    forceTime = 10,
-}
-
+local cfg = { minVal = 1, unit = "M", good = true, secret = true, og = true }
 local UNITS = { K = 1e3, M = 1e6, B = 1e9 }
 local function threshold() return (tonumber(cfg.minVal) or 0) * (UNITS[cfg.unit] or 1e6) end
 
@@ -108,126 +101,180 @@ local function rarityOK(r)
     if (r:find("good") or r:find("brainrot god") or r:find("god")) and cfg.good then return true end
     return false
 end
-
 local function passes(b)
     return (tonumber(b.gen_val) or 0) >= threshold() and rarityOK(b.rarity)
 end
 
--- ===== GUI =====
+-- ===== gui helpers =====
 local parentGui = (gethui and gethui()) or CoreGui
 local gui = Instance.new("ScreenGui")
-gui.Name = "MeowlzzFinder_Gold"
+gui.Name = HttpService:GenerateGUID(false)
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = parentGui
 if syn and syn.protect_gui then pcall(syn.protect_gui, gui) end
 
-local function corner(o, r) 
-    local c = Instance.new("UICorner") 
-    c.CornerRadius = UDim.new(0, r or 10) 
-    c.Parent = o 
-    return c 
+local function corner(o, r)
+    local c = Instance.new("UICorner") c.CornerRadius = UDim.new(0, r or 10) c.Parent = o return c
 end
-
-local function stroke(o, col, t)
-    local s = Instance.new("UIStroke") 
-    s.Color = col or GOLD 
-    s.Transparency = t or 0.4 
-    s.Parent = o 
+local function stroke(o, col, t, th)
+    local s = Instance.new("UIStroke")
+    s.Color = col or GOLD
+    s.Transparency = t or 0.55
+    s.Thickness = th or 1
+    s.Parent = o
     return s
 end
+local function pad(o, all)
+    local p = Instance.new("UIPadding")
+    p.PaddingTop = UDim.new(0, all) p.PaddingBottom = UDim.new(0, all)
+    p.PaddingLeft = UDim.new(0, all) p.PaddingRight = UDim.new(0, all)
+    p.Parent = o
+    return p
+end
+local function goldGradient(o, rot)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, GOLD_SOFT),
+        ColorSequenceKeypoint.new(1, GOLD_DEEP),
+    })
+    g.Rotation = rot or 90
+    g.Parent = o
+    return g
+end
 
--- ===== Main Frame =====
+-- ===== window =====
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 440, 0, 350)
-main.Position = UDim2.new(0.5, -220, 0.5, -175)
+main.Size = UDim2.new(0, 430, 0, 292)
+main.Position = UDim2.new(0, 20, 0.5, -146)
 main.BackgroundColor3 = BG
-main.BackgroundTransparency = 0.15
+main.BackgroundTransparency = 0.18   -- semi transparente
 main.BorderSizePixel = 0
-main.ClipsDescendants = true
 main.Parent = gui
-corner(main, 20)
-stroke(main, GOLD, 0.35)
+corner(main, 16) stroke(main, GOLD, 0.35, 1.4)
 
--- ===== Header =====
+do -- soft inner glow gradient over the glass
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(48, 40, 26)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 13, 9)),
+    })
+    g.Rotation = 115
+    g.Parent = main
+end
+
 local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 52)
+header.Size = UDim2.new(1, 0, 0, 40)
 header.BackgroundColor3 = BG2
-header.BackgroundTransparency = 0.3
+header.BackgroundTransparency = 0.35
 header.BorderSizePixel = 0
 header.Parent = main
-corner(header, 20)
+corner(header, 16)
+
+local headerFix = Instance.new("Frame") -- squares off the bottom corners of header
+headerFix.Size = UDim2.new(1, 0, 0, 16)
+headerFix.Position = UDim2.new(0, 0, 1, -16)
+headerFix.BackgroundColor3 = BG2
+headerFix.BackgroundTransparency = 0.35
+headerFix.BorderSizePixel = 0
+headerFix.Parent = header
 
 local logo = Instance.new("ImageLabel")
-logo.Size = UDim2.new(0, 34, 0, 34)
-logo.Position = UDim2.new(0, 12, 0.5, -17)
-logo.BackgroundTransparency = 1
-logo.Image = "rbxassetid://105194511752844"
+logo.Size = UDim2.new(0, 26, 0, 26)
+logo.Position = UDim2.new(0, 10, 0, 7)
+logo.BackgroundColor3 = BG3
+logo.BackgroundTransparency = 0.2
+logo.BorderSizePixel = 0
+logo.Image = LOGO
+logo.ScaleType = Enum.ScaleType.Fit
+logo.ZIndex = 3
 logo.Parent = header
+corner(logo, 9) stroke(logo, GOLD, 0.45)
 
 local title = Instance.new("TextLabel")
 title.BackgroundTransparency = 1
-title.Position = UDim2.new(0, 52, 0, 0)
-title.Size = UDim2.new(1, -130, 1, 0)
+title.Position = UDim2.new(0, 44, 0, 5)
+title.Size = UDim2.new(1, -120, 0, 16)
 title.Font = Enum.Font.GothamBold
 title.Text = "MEOWLZZ FINDER"
-title.TextSize = 15
+title.TextSize = 13
 title.TextColor3 = GOLD_SOFT
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.TextStrokeTransparency = 1
+title.ZIndex = 3
 title.Parent = header
+
+local subtitle = Instance.new("TextLabel")
+subtitle.BackgroundTransparency = 1
+subtitle.Position = UDim2.new(0, 44, 0, 21)
+subtitle.Size = UDim2.new(1, -120, 0, 13)
+subtitle.Font = Enum.Font.Gotham
+subtitle.Text = "v5  -  by @Zx_Meowl on tiktok"
+subtitle.TextSize = 10
+subtitle.TextColor3 = DIM
+subtitle.TextXAlignment = Enum.TextXAlignment.Left
+subtitle.ZIndex = 3
+subtitle.Parent = header
 
 local function headBtn(txt, x, fn)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, 28, 0, 24)
-    b.Position = UDim2.new(1, x, 0.5, -12)
-    b.BackgroundColor3 = BG
-    b.BackgroundTransparency = 0.5
+    b.Size = UDim2.new(0, 26, 0, 22)
+    b.Position = UDim2.new(1, x, 0, 9)
+    b.BackgroundColor3 = BG3
+    b.BackgroundTransparency = 0.2
     b.BorderSizePixel = 0
+    b.AutoButtonColor = false
     b.Font = Enum.Font.GothamBold
     b.Text = txt
-    b.TextSize = 13
+    b.TextSize = 12
     b.TextColor3 = GOLD
-    b.TextStrokeTransparency = 1
+    b.ZIndex = 3
     b.Parent = header
-    corner(b, 8)
-    stroke(b, GOLD, 0.6)
+    corner(b, 8) stroke(b, GOLD, 0.6)
+    b.MouseEnter:Connect(function() b.BackgroundColor3 = GOLD_DEEP b.TextColor3 = INK end)
+    b.MouseLeave:Connect(function() b.BackgroundColor3 = BG3 b.TextColor3 = GOLD end)
     b.MouseButton1Click:Connect(fn)
     return b
 end
 
--- ===== Corpo =====
 local body = Instance.new("Frame")
-body.Position = UDim2.new(0, 0, 0, 52)
-body.Size = UDim2.new(1, 0, 1, -52)
+body.Position = UDim2.new(0, 0, 0, 40)
+body.Size = UDim2.new(1, 0, 1, -40)
 body.BackgroundTransparency = 1
 body.Parent = main
 
--- ===== Abas =====
+-- ===== side rail =====
+local RAIL_W = 96
 local rail = Instance.new("Frame")
-rail.Size = UDim2.new(0, 90, 1, 0)
+rail.Size = UDim2.new(0, RAIL_W, 1, 0)
 rail.BackgroundColor3 = BG2
-rail.BackgroundTransparency = 0.2
+rail.BackgroundTransparency = 0.4
 rail.BorderSizePixel = 0
 rail.Parent = body
-corner(rail, 0)
+
+local railDiv = Instance.new("Frame")
+railDiv.Size = UDim2.new(0, 1, 1, -16)
+railDiv.Position = UDim2.new(0, RAIL_W, 0, 8)
+railDiv.BackgroundColor3 = GOLD
+railDiv.BackgroundTransparency = 0.65
+railDiv.BorderSizePixel = 0
+railDiv.Parent = body
 
 local railList = Instance.new("UIListLayout")
-railList.Padding = UDim.new(0, 8)
+railList.Padding = UDim.new(0, 6)
 railList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+railList.SortOrder = Enum.SortOrder.LayoutOrder
 railList.Parent = rail
-
 local railPad = Instance.new("UIPadding")
-railPad.PaddingTop = UDim.new(0, 14)
-railPad.PaddingBottom = UDim.new(0, 14)
+railPad.PaddingTop = UDim.new(0, 10)
+railPad.PaddingLeft = UDim.new(0, 8)
+railPad.PaddingRight = UDim.new(0, 8)
 railPad.Parent = rail
 
-local pages, tabBtns = {}, {}
-
+local pages, tabBtns, tabPills = {}, {}, {}
 local function makePage()
     local p = Instance.new("Frame")
-    p.Position = UDim2.new(0, 98, 0, 6)
-    p.Size = UDim2.new(1, -106, 1, -12)
+    p.Position = UDim2.new(0, RAIL_W + 12, 0, 10)
+    p.Size = UDim2.new(1, -(RAIL_W + 24), 1, -20)
     p.BackgroundTransparency = 1
     p.Visible = false
     p.Parent = body
@@ -239,158 +286,102 @@ local function setTab(id)
     currentTab = id
     for k, p in pairs(pages) do p.Visible = (k == id) end
     for k, b in pairs(tabBtns) do
-        local active = (k == id)
-        b.BackgroundColor3 = active and GOLD or BG
-        b.BackgroundTransparency = active and 0 or 0.7
-        b.TextColor3 = active and Color3.fromRGB(25, 20, 10) or GOLD
-        b.TextSize = active and 12 or 11
+        local on = (k == id)
+        TweenService:Create(b, TweenInfo.new(0.15), {
+            BackgroundColor3 = on and GOLD or BG3,
+            BackgroundTransparency = on and 0 or 0.25,
+            TextColor3 = on and INK or GOLD,
+        }):Play()
+        tabPills[k].BackgroundTransparency = on and 0 or 1
     end
 end
 
+local order = 0
 local function makeTab(id, label)
+    order = order + 1
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, 80, 0, 36)
-    b.BackgroundColor3 = BG
-    b.BackgroundTransparency = 0.7
+    b.Size = UDim2.new(1, 0, 0, 34)
+    b.LayoutOrder = order
+    b.BackgroundColor3 = BG3
+    b.BackgroundTransparency = 0.25
     b.BorderSizePixel = 0
+    b.AutoButtonColor = false
     b.Font = Enum.Font.GothamBold
     b.Text = label
-    b.TextSize = 11
+    b.TextSize = 10
     b.TextColor3 = GOLD
-    b.TextStrokeTransparency = 1
     b.Parent = rail
-    corner(b, 10)
-    stroke(b, GOLD, 0.5)
+    corner(b, 10) stroke(b, GOLD, 0.7)
+
+    local pill = Instance.new("Frame")
+    pill.Size = UDim2.new(0, 3, 0, 16)
+    pill.Position = UDim2.new(0, 4, 0.5, -8)
+    pill.BackgroundColor3 = INK
+    pill.BackgroundTransparency = 1
+    pill.BorderSizePixel = 0
+    pill.Parent = b
+    corner(pill, 2)
+    tabPills[id] = pill
+
     b.MouseButton1Click:Connect(function() setTab(id) end)
     tabBtns[id] = b
     pages[id] = makePage()
     return pages[id]
 end
 
-local pFinder = makeTab("finder", "FINDER")
-local pUsers  = makeTab("users",  "USERS")
+local pLogs   = makeTab("logs",   "LOGS")
 local pConfig = makeTab("config", "CONFIG")
+local pUsers  = makeTab("users",  "USERS")
 
--- ================================================================
--- ===== FINDER PAGE (CORRIGIDO: textos em cima dos toggles) =====
--- ================================================================
+local railFoot = Instance.new("TextLabel")
+railFoot.LayoutOrder = 99
+railFoot.Size = UDim2.new(1, 0, 0, 26)
+railFoot.BackgroundTransparency = 1
+railFoot.Font = Enum.Font.Gotham
+railFoot.Text = "MEOWLZZ\nHUB"
+railFoot.TextSize = 8
+railFoot.TextColor3 = DIM
+railFoot.Parent = rail
 
--- Barra de ferramentas com altura maior
+-- ===== logs page =====
 local quickBar = Instance.new("Frame")
-quickBar.Size = UDim2.new(1, 0, 0, 44)  -- altura suficiente para texto + toggle
+quickBar.Size = UDim2.new(1, 0, 0, 26)
 quickBar.BackgroundTransparency = 1
-quickBar.Parent = pFinder
-
+quickBar.Parent = pLogs
 local qLayout = Instance.new("UIListLayout")
 qLayout.FillDirection = Enum.FillDirection.Horizontal
-qLayout.Padding = UDim.new(0, 4)
+qLayout.Padding = UDim.new(0, 6)
 qLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 qLayout.Parent = quickBar
 
--- Função para criar um container com texto em cima e toggle embaixo
-local function createToggleContainer(label, key, width)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(0, width, 1, 0)
-    container.BackgroundTransparency = 1
-    container.Parent = quickBar
-    
-    -- Texto em cima
-    local labelText = Instance.new("TextLabel")
-    labelText.Size = UDim2.new(1, 0, 0, 14)
-    labelText.Position = UDim2.new(0, 0, 0, 0)
-    labelText.BackgroundTransparency = 1
-    labelText.Text = label
-    labelText.TextColor3 = GOLD
-    labelText.TextSize = 8
-    labelText.Font = Enum.Font.GothamBold
-    labelText.TextStrokeTransparency = 1
-    labelText.TextXAlignment = Enum.TextXAlignment.Center
-    labelText.Parent = container
-    
-    -- Toggle (embaixo)
-    local toggleBg = Instance.new("TextButton")
-    toggleBg.Size = UDim2.new(0, 40, 0, 18)
-    toggleBg.Position = UDim2.new(0.5, -20, 0, 16)
-    toggleBg.BackgroundColor3 = cfg[key] and GOLD or Color3.fromRGB(40, 40, 50)
-    toggleBg.BorderSizePixel = 0
-    toggleBg.Text = ""
-    toggleBg.AutoButtonColor = false
-    toggleBg.Parent = container
-    corner(toggleBg, 9)
-    
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.new(0, 14, 0, 14)
-    knob.Position = cfg[key] and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
-    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    knob.BorderSizePixel = 0
-    knob.Parent = toggleBg
-    corner(knob, 7)
-    
-    local function updateToggle()
-        local state = cfg[key]
-        toggleBg.BackgroundColor3 = state and GOLD or Color3.fromRGB(40, 40, 50)
-        knob.Position = state and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
-    end
-    
-    toggleBg.MouseButton1Click:Connect(function()
-        cfg[key] = not cfg[key]
-        updateToggle()
-    end)
-    
-    return container
-end
-
--- Botões normais (REFRESH e CLEAR LOGS)
-local function quickBtn(txt, w, fn)
+local function quickBtn(txt, w, fn, filled)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(0, w, 1, 0)
-    b.BackgroundColor3 = BG2
-    b.BackgroundTransparency = 0.4
+    b.BackgroundColor3 = filled and GOLD or BG3
+    b.BackgroundTransparency = filled and 0 or 0.2
     b.BorderSizePixel = 0
+    b.AutoButtonColor = false
     b.Font = Enum.Font.GothamBold
     b.Text = txt
-    b.TextSize = 10
-    b.TextColor3 = GOLD
-    b.TextStrokeTransparency = 1
+    b.TextSize = 9
+    b.TextColor3 = filled and INK or GOLD
     b.Parent = quickBar
-    corner(b, 8)
-    stroke(b, GOLD, 0.5)
+    corner(b, 9) stroke(b, GOLD, filled and 0.9 or 0.65)
     b.MouseButton1Click:Connect(fn)
     return b
 end
 
--- Criar toggles com texto em cima
-createToggleContainer("AUTO-JOIN", "autoJoin", 52)
-createToggleContainer("AUTO-FORCE", "autoForce", 52)
-
-quickBtn("REFRESH", 58, function() task.spawn(refresh) end)
-quickBtn("CLEAR LOGS", 72, function()
-    for _, b in ipairs(lastRows) do cleared[b._key] = true end
-    for _, e in ipairs({ table.unpack(activeNotifs) }) do removeNotif(e) end
-    for _, c in ipairs(list:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
-end)
-
--- ===== DIVISÓRIA (logo abaixo da quickBar) =====
-local divider = Instance.new("Frame")
-divider.Size = UDim2.new(1, -12, 0, 1)
-divider.Position = UDim2.new(0, 6, 0, 46) -- 44 (altura da quickBar) + 2 margem
-divider.BackgroundColor3 = GOLD
-divider.BackgroundTransparency = 0.5
-divider.BorderSizePixel = 0
-divider.Parent = pFinder
-
--- ===== Lista de logs =====
 local list = Instance.new("ScrollingFrame")
-list.Position = UDim2.new(0, 0, 0, 50) -- 46 (divisória) + 4 margem
-list.Size = UDim2.new(1, 0, 1, -50)
+list.Position = UDim2.new(0, 0, 0, 32)
+list.Size = UDim2.new(1, 0, 1, -32)
 list.BackgroundTransparency = 1
 list.BorderSizePixel = 0
 list.ScrollBarThickness = 3
 list.ScrollBarImageColor3 = GOLD
+list.ScrollBarImageTransparency = 0.3
 list.CanvasSize = UDim2.new(0, 0, 0, 0)
 list.AutomaticCanvasSize = Enum.AutomaticSize.Y
-list.Parent = pFinder
-
+list.Parent = pLogs
 local listLayout = Instance.new("UIListLayout")
 listLayout.Padding = UDim.new(0, 6)
 listLayout.Parent = list
@@ -403,114 +394,100 @@ local function safeTeleport(placeId, jobId)
         TeleportService:TeleportToPlaceInstance(tonumber(placeId) or game.PlaceId, jobId, LP)
     end)
     if not ok then
-        pcall(function()
-            TeleportService:Teleport(tonumber(placeId) or game.PlaceId, LP)
-        end)
+        pcall(function() TeleportService:Teleport(tonumber(placeId) or game.PlaceId, LP) end)
         warn("[Meowlzz] join fallback:", err)
     end
 end
 
-local autoJoinCooldown = false
-
-local function handleAutoJoin(jobId)
-    if cfg.autoJoin and jobId and jobId ~= "" then
-        if not autoJoinCooldown then
-            autoJoinCooldown = true
-            task.spawn(safeTeleport, game.PlaceId, jobId)
-            task.delay(3, function() autoJoinCooldown = false end)
+local function joinButton(parent, b, w, h)
+    local j = Instance.new("TextButton")
+    j.Size = UDim2.new(0, w, 0, h)
+    j.Position = UDim2.new(1, -(w + 10), 0.5, -(h/2))
+    j.BackgroundColor3 = GOLD
+    j.BorderSizePixel = 0
+    j.AutoButtonColor = false
+    j.Font = Enum.Font.GothamBold
+    j.Text = "JOIN"
+    j.TextSize = 10
+    j.TextColor3 = INK
+    j.ZIndex = 3
+    j.Parent = parent
+    corner(j, 9)
+    goldGradient(j, 90)
+    j.MouseButton1Click:Connect(function()
+        if not b.server_id or b.server_id == "" then
+            j.Text = "N/A" task.delay(1.2, function() j.Text = "JOIN" end) return
         end
-    end
-    if cfg.autoForce and jobId and jobId ~= "" then
-        task.spawn(function()
-            for i = 1, cfg.forceTime or 10 do
-                if not cfg.autoForce then break end
-                pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, jobId, LP) end)
-                task.wait(2.5)
-            end
-        end)
-    end
+        j.Text = "..."
+        task.spawn(safeTeleport, b.place_id or game.PlaceId, b.server_id)
+    end)
+    return j
 end
 
 local function makeCard(b)
     local f = Instance.new("Frame")
-    f.Size = UDim2.new(1, -4, 0, 54)
+    f.Size = UDim2.new(1, -6, 0, 56)
     f.BackgroundColor3 = BG2
-    f.BackgroundTransparency = 0.4
+    f.BackgroundTransparency = 0.2
     f.BorderSizePixel = 0
     f.Parent = list
-    corner(f, 12)
-    stroke(f, GOLD, 0.4)
+    corner(f, 12) stroke(f, GOLD, 0.72)
+
+    local accent = Instance.new("Frame")
+    accent.Size = UDim2.new(0, 3, 1, -16)
+    accent.Position = UDim2.new(0, 7, 0, 8)
+    accent.BackgroundColor3 = GOLD
+    accent.BorderSizePixel = 0
+    accent.Parent = f
+    corner(accent, 2)
 
     local n = Instance.new("TextLabel")
     n.BackgroundTransparency = 1
-    n.Position = UDim2.new(0, 12, 0, 4)
-    n.Size = UDim2.new(1, -76, 0, 16)
+    n.Position = UDim2.new(0, 18, 0, 7)
+    n.Size = UDim2.new(1, -80, 0, 15)
     n.Font = Enum.Font.GothamBold
     n.Text = tostring(b.name or "?")
-    n.TextSize = 13
+    n.TextSize = 12
     n.TextColor3 = GOLD_SOFT
     n.TextXAlignment = Enum.TextXAlignment.Left
     n.TextTruncate = Enum.TextTruncate.AtEnd
-    n.TextStrokeTransparency = 1
     n.Parent = f
 
     local sub = Instance.new("TextLabel")
     sub.BackgroundTransparency = 1
-    sub.Position = UDim2.new(0, 12, 0, 20)
-    sub.Size = UDim2.new(1, -76, 0, 15)
-    sub.Font = Enum.Font.Gotham
-    sub.Text = fmt(b.gen_val) .. "  -  " .. tostring(b.rarity or "?")
+    sub.Position = UDim2.new(0, 18, 0, 23)
+    sub.Size = UDim2.new(1, -80, 0, 14)
+    sub.Font = Enum.Font.GothamMedium
+    sub.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.rarity or "?")
     sub.TextSize = 10
     sub.TextColor3 = TXT
     sub.TextXAlignment = Enum.TextXAlignment.Left
-    sub.TextStrokeTransparency = 1
+    sub.TextTruncate = Enum.TextTruncate.AtEnd
     sub.Parent = f
 
     local meta = Instance.new("TextLabel")
     meta.BackgroundTransparency = 1
-    meta.Position = UDim2.new(0, 12, 0, 35)
-    meta.Size = UDim2.new(1, -76, 0, 14)
+    meta.Position = UDim2.new(0, 18, 0, 37)
+    meta.Size = UDim2.new(1, -80, 0, 13)
     meta.Font = Enum.Font.Gotham
-    meta.Text = (b.traits and b.traits ~= "" and b.traits or "No traits") .. "  -  " .. ago(b.received_at)
+    meta.Text = (b.traits and b.traits ~= "" and b.traits or "No traits") .. "  •  " .. ago(b.received_at)
     meta.TextSize = 9
     meta.TextColor3 = DIM
     meta.TextXAlignment = Enum.TextXAlignment.Left
     meta.TextTruncate = Enum.TextTruncate.AtEnd
-    meta.TextStrokeTransparency = 1
     meta.Parent = f
 
-    local join = Instance.new("TextButton")
-    join.Size = UDim2.new(0, 54, 0, 26)
-    join.Position = UDim2.new(1, -62, 0.5, -13)
-    join.BackgroundColor3 = GOLD
-    join.BorderSizePixel = 0
-    join.Font = Enum.Font.GothamBold
-    join.Text = "JOIN"
-    join.TextSize = 10
-    join.TextColor3 = Color3.fromRGB(25, 20, 10)
-    join.TextStrokeTransparency = 1
-    join.Parent = f
-    corner(join, 8)
-    join.MouseButton1Click:Connect(function()
-        if not b.server_id or b.server_id == "" then
-            join.Text = "N/A" 
-            task.delay(1.2, function() join.Text = "JOIN" end) 
-            return
-        end
-        join.Text = "..."
-        task.spawn(safeTeleport, b.place_id or game.PlaceId, b.server_id)
-    end)
+    joinButton(f, b, 52, 24)
     return f
 end
 
--- ===== Notificações =====
+-- ===== notifications (max 3, 3s, sound) =====
 local notifHolder = Instance.new("Frame")
 notifHolder.AnchorPoint = Vector2.new(0.5, 0)
-notifHolder.Position = UDim2.new(0.5, 0, 0, 8)
-notifHolder.Size = UDim2.new(0, 340, 0, 160)
+notifHolder.Position = UDim2.new(0.5, 0, 0, 10)
+notifHolder.Size = UDim2.new(0, 320, 0, 190)
 notifHolder.BackgroundTransparency = 1
 notifHolder.Parent = gui
-
 local nLayout = Instance.new("UIListLayout")
 nLayout.Padding = UDim.new(0, 6)
 nLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -524,7 +501,7 @@ local function playPing()
     s.Volume = 2
     s.Parent = SoundService
     s:Play()
-    game:GetService("Debris"):AddItem(s, 5)
+    Debris:AddItem(s, 5)
 end
 
 local function removeNotif(entry)
@@ -532,8 +509,7 @@ local function removeNotif(entry)
         if e == entry then table.remove(activeNotifs, i) break end
     end
     if entry.frame then
-        local t = TweenService:Create(entry.frame, TweenInfo.new(0.25), { BackgroundTransparency = 1 })
-        t:Play()
+        TweenService:Create(entry.frame, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
         task.delay(0.28, function() pcall(function() entry.frame:Destroy() end) end)
     end
 end
@@ -543,9 +519,9 @@ local function showNotif(b)
         if e.key == (tostring(b.name) .. tostring(b.server_id)) then return end
     end
     if #activeNotifs >= 3 then
-        local worst, idx = nil, nil
+        local worst, _idx = nil, nil
         for i, e in ipairs(activeNotifs) do
-            if not worst or e.val < worst.val then worst, idx = e, i end
+            if not worst or e.val < worst.val then worst, _idx = e, i end
         end
         if worst and worst.val >= (tonumber(b.gen_val) or 0) then return end
         if worst then removeNotif(worst) end
@@ -557,63 +533,56 @@ local function showNotif(b)
     f.BackgroundTransparency = 1
     f.BorderSizePixel = 0
     f.Parent = notifHolder
-    corner(f, 12)
-    stroke(f, GOLD, 0.3)
-    TweenService:Create(f, TweenInfo.new(0.25), { BackgroundTransparency = 0.05 }):Play()
+    corner(f, 12) stroke(f, GOLD, 0.35)
+    TweenService:Create(f, TweenInfo.new(0.25), { BackgroundTransparency = 0.12 }):Play()
+
+    local ic = Instance.new("ImageLabel")
+    ic.Size = UDim2.new(0, 34, 0, 34)
+    ic.Position = UDim2.new(0, 9, 0.5, -17)
+    ic.BackgroundColor3 = BG3
+    ic.BackgroundTransparency = 0.25
+    ic.BorderSizePixel = 0
+    ic.Image = LOGO
+    ic.ScaleType = Enum.ScaleType.Fit
+    ic.Parent = f
+    corner(ic, 10) stroke(ic, GOLD, 0.55)
 
     local n = Instance.new("TextLabel")
     n.BackgroundTransparency = 1
-    n.Position = UDim2.new(0, 12, 0, 4)
-    n.Size = UDim2.new(1, -76, 0, 16)
+    n.Position = UDim2.new(0, 51, 0, 7)
+    n.Size = UDim2.new(1, -115, 0, 15)
     n.Font = Enum.Font.GothamBold
     n.Text = tostring(b.name or "?")
-    n.TextSize = 13
+    n.TextSize = 12
     n.TextColor3 = GOLD_SOFT
     n.TextXAlignment = Enum.TextXAlignment.Left
     n.TextTruncate = Enum.TextTruncate.AtEnd
-    n.TextStrokeTransparency = 1
     n.Parent = f
 
     local d = Instance.new("TextLabel")
     d.BackgroundTransparency = 1
-    d.Position = UDim2.new(0, 12, 0, 20)
-    d.Size = UDim2.new(1, -76, 0, 28)
+    d.Position = UDim2.new(0, 51, 0, 23)
+    d.Size = UDim2.new(1, -115, 0, 26)
     d.Font = Enum.Font.Gotham
-    d.Text = fmt(b.gen_val) .. "  -  " .. tostring(b.mutation or "None") .. "\n" ..
+    d.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.mutation or "None") .. "\n" ..
              (b.traits and b.traits ~= "" and b.traits or "No traits")
     d.TextSize = 9
     d.TextColor3 = TXT
     d.TextXAlignment = Enum.TextXAlignment.Left
     d.TextYAlignment = Enum.TextYAlignment.Top
-    d.TextStrokeTransparency = 1
     d.Parent = f
 
-    local j = Instance.new("TextButton")
-    j.Size = UDim2.new(0, 54, 0, 26)
-    j.Position = UDim2.new(1, -62, 0.5, -13)
-    j.BackgroundColor3 = GOLD
-    j.BorderSizePixel = 0
-    j.Font = Enum.Font.GothamBold
-    j.Text = "JOIN"
-    j.TextSize = 10
-    j.TextColor3 = Color3.fromRGB(25, 20, 10)
-    j.TextStrokeTransparency = 1
-    j.Parent = f
-    corner(j, 8)
-    j.MouseButton1Click:Connect(function()
-        if b.server_id and b.server_id ~= "" then
-            task.spawn(safeTeleport, b.place_id or game.PlaceId, b.server_id)
-        end
-    end)
+    joinButton(f, b, 52, 24)
 
     local entry = { frame = f, val = tonumber(b.gen_val) or 0, key = tostring(b.name) .. tostring(b.server_id) }
     table.insert(activeNotifs, entry)
     pcall(playPing)
-    task.delay(3.5, function() removeNotif(entry) end)
+    task.delay(3, function() removeNotif(entry) end)
 end
 
--- ===== Refresh =====
+-- ===== refresh =====
 local notified = {}
+local statusLbl
 local function refresh()
     local raw = httpGet(API_URL())
     if not raw then return end
@@ -634,33 +603,237 @@ local function refresh()
 
     lastRows = kept
     for _, c in ipairs(list:GetChildren()) do
-        if c:IsA("Frame") then c:Destroy() end
+        if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
     end
     if #kept == 0 then
         local e = Instance.new("TextLabel")
-        e.Size = UDim2.new(1, -4, 0, 40)
+        e.Size = UDim2.new(1, -6, 0, 46)
         e.BackgroundTransparency = 1
         e.Font = Enum.Font.Gotham
         e.Text = "No logs yet"
         e.TextSize = 10
         e.TextColor3 = DIM
-        e.TextStrokeTransparency = 1
         e.Parent = list
     end
     for i, b in ipairs(kept) do
-        if i > 35 then break end
+        if i > 30 then break end
         makeCard(b)
         if not notified[b._key] then
             notified[b._key] = true
             showNotif(b)
-            handleAutoJoin(b.server_id)
         end
     end
+    if statusLbl then statusLbl.Text = tostring(#kept) .. " logs" end
 end
 
--- ===== USERS PAGE =====
+quickBtn("FORCE REFRESH", 92, function() task.spawn(refresh) end, true)
+quickBtn("CLEAR LOGS", 76, function()
+    for _, b in ipairs(lastRows) do cleared[b._key] = true end
+    for _, e in ipairs({ table.unpack(activeNotifs) }) do removeNotif(e) end
+    for _, c in ipairs(list:GetChildren()) do
+        if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+    end
+    if statusLbl then statusLbl.Text = "0 logs" end
+end)
+quickBtn("TOP", 40, function() list.CanvasPosition = Vector2.new(0, 0) end)
+
+statusLbl = Instance.new("TextLabel")
+statusLbl.Size = UDim2.new(0, 60, 1, 0)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Font = Enum.Font.Gotham
+statusLbl.Text = "0 logs"
+statusLbl.TextSize = 9
+statusLbl.TextColor3 = DIM
+statusLbl.TextXAlignment = Enum.TextXAlignment.Right
+statusLbl.Parent = quickBar
+
+-- ===== config page =====
+local cfgScroll = Instance.new("ScrollingFrame")
+cfgScroll.Size = UDim2.new(1, 0, 1, 0)
+cfgScroll.BackgroundTransparency = 1
+cfgScroll.BorderSizePixel = 0
+cfgScroll.ScrollBarThickness = 3
+cfgScroll.ScrollBarImageColor3 = GOLD
+cfgScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+cfgScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+cfgScroll.Parent = pConfig
+local cfgLayout = Instance.new("UIListLayout")
+cfgLayout.Padding = UDim.new(0, 8)
+cfgLayout.Parent = cfgScroll
+
+local function section(titleTxt, h)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, -6, 0, h)
+    card.BackgroundColor3 = BG2
+    card.BackgroundTransparency = 0.25
+    card.BorderSizePixel = 0
+    card.Parent = cfgScroll
+    corner(card, 12) stroke(card, GOLD, 0.72)
+
+    local t = Instance.new("TextLabel")
+    t.BackgroundTransparency = 1
+    t.Position = UDim2.new(0, 12, 0, 8)
+    t.Size = UDim2.new(1, -20, 0, 13)
+    t.Font = Enum.Font.GothamBold
+    t.Text = titleTxt
+    t.TextSize = 9
+    t.TextColor3 = GOLD
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.Parent = card
+    return card
+end
+
+-- min gen
+local secGen = section("MINIMUM GENERATION", 66)
+
+local box = Instance.new("TextBox")
+box.Position = UDim2.new(0, 12, 0, 28)
+box.Size = UDim2.new(0, 92, 0, 28)
+box.BackgroundColor3 = BG3
+box.BackgroundTransparency = 0.15
+box.BorderSizePixel = 0
+box.Font = Enum.Font.GothamMedium
+box.Text = "1"
+box.PlaceholderText = "1"
+box.PlaceholderColor3 = DIM
+box.TextSize = 11
+box.TextColor3 = TXT
+box.ClearTextOnFocus = false
+box.Parent = secGen
+corner(box, 9) stroke(box, GOLD, 0.65)
+box.FocusLost:Connect(function()
+    cfg.minVal = tonumber(box.Text) or 0
+    box.Text = tostring(cfg.minVal)
+    task.spawn(refresh)
+end)
+
+local unitHolder = Instance.new("Frame")
+unitHolder.Position = UDim2.new(0, 112, 0, 28)
+unitHolder.Size = UDim2.new(1, -124, 0, 28)
+unitHolder.BackgroundTransparency = 1
+unitHolder.Parent = secGen
+local uL = Instance.new("UIListLayout")
+uL.FillDirection = Enum.FillDirection.Horizontal
+uL.Padding = UDim.new(0, 6)
+uL.Parent = unitHolder
+
+local unitBtns = {}
+local function paintUnit(b, on)
+    b.BackgroundColor3 = on and GOLD or BG3
+    b.BackgroundTransparency = on and 0 or 0.15
+    b.TextColor3 = on and INK or GOLD
+end
+for _, u in ipairs({ "K", "M", "B" }) do
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, 38, 1, 0)
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.Font = Enum.Font.GothamBold
+    b.Text = u
+    b.TextSize = 11
+    b.Parent = unitHolder
+    corner(b, 9) stroke(b, GOLD, 0.65)
+    paintUnit(b, u == cfg.unit)
+    unitBtns[u] = b
+    b.MouseButton1Click:Connect(function()
+        cfg.unit = u
+        for k, bb in pairs(unitBtns) do paintUnit(bb, k == u) end
+        task.spawn(refresh)
+    end)
+end
+
+-- rarities
+local secRar = section("RARITY FILTER", 104)
+local rarHolder = Instance.new("Frame")
+rarHolder.Position = UDim2.new(0, 12, 0, 28)
+rarHolder.Size = UDim2.new(1, -24, 0, 66)
+rarHolder.BackgroundTransparency = 1
+rarHolder.Parent = secRar
+local rL = Instance.new("UIListLayout")
+rL.Padding = UDim.new(0, 6)
+rL.Parent = rarHolder
+
+local function toggle(key, label)
+    local row = Instance.new("TextButton")
+    row.Size = UDim2.new(1, 0, 0, 18)
+    row.BackgroundColor3 = BG3
+    row.BackgroundTransparency = 0.15
+    row.BorderSizePixel = 0
+    row.AutoButtonColor = false
+    row.Text = ""
+    row.Parent = rarHolder
+    corner(row, 9) stroke(row, GOLD, 0.7)
+
+    local lb = Instance.new("TextLabel")
+    lb.BackgroundTransparency = 1
+    lb.Position = UDim2.new(0, 12, 0, 0)
+    lb.Size = UDim2.new(1, -60, 1, 0)
+    lb.Font = Enum.Font.GothamBold
+    lb.Text = label
+    lb.TextSize = 9
+    lb.TextColor3 = GOLD_SOFT
+    lb.TextXAlignment = Enum.TextXAlignment.Left
+    lb.Parent = row
+
+    local track = Instance.new("Frame")
+    track.AnchorPoint = Vector2.new(1, 0.5)
+    track.Position = UDim2.new(1, -10, 0.5, 0)
+    track.Size = UDim2.new(0, 32, 0, 14)
+    track.BackgroundColor3 = cfg[key] and GOLD or BG
+    track.BorderSizePixel = 0
+    track.Parent = row
+    corner(track, 7) stroke(track, GOLD, 0.6)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 10, 0, 10)
+    knob.Position = cfg[key] and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5)
+    knob.BackgroundColor3 = cfg[key] and INK or GOLD
+    knob.BorderSizePixel = 0
+    knob.Parent = track
+    corner(knob, 5)
+
+    row.MouseButton1Click:Connect(function()
+        cfg[key] = not cfg[key]
+        TweenService:Create(track, TweenInfo.new(0.15), { BackgroundColor3 = cfg[key] and GOLD or BG }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.15), {
+            Position = cfg[key] and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5),
+            BackgroundColor3 = cfg[key] and INK or GOLD,
+        }):Play()
+        task.spawn(refresh)
+    end)
+end
+toggle("good",   "BRAINROT GOOD")
+toggle("secret", "SECRET")
+toggle("og",     "OG")
+
+local secInfo = section("INFO", 62)
+local hint = Instance.new("TextLabel")
+hint.Position = UDim2.new(0, 12, 0, 26)
+hint.Size = UDim2.new(1, -24, 0, 30)
+hint.BackgroundTransparency = 1
+hint.Font = Enum.Font.Gotham
+hint.Text = "Notifications stack up to 3 (3s each) with sound + join.\nCLEAR LOGS wipes the list and the on-screen alerts."
+hint.TextSize = 9
+hint.TextWrapped = true
+hint.TextColor3 = DIM
+hint.TextXAlignment = Enum.TextXAlignment.Left
+hint.TextYAlignment = Enum.TextYAlignment.Top
+hint.Parent = secInfo
+
+-- ===== users page (auto joiner) =====
+local usersHead = Instance.new("TextLabel")
+usersHead.Size = UDim2.new(1, 0, 0, 18)
+usersHead.BackgroundTransparency = 1
+usersHead.Font = Enum.Font.GothamBold
+usersHead.Text = "JOINER USERS ONLINE"
+usersHead.TextSize = 9
+usersHead.TextColor3 = GOLD
+usersHead.TextXAlignment = Enum.TextXAlignment.Left
+usersHead.Parent = pUsers
+
 local usersList = Instance.new("ScrollingFrame")
-usersList.Size = UDim2.new(1, 0, 1, 0)
+usersList.Position = UDim2.new(0, 0, 0, 24)
+usersList.Size = UDim2.new(1, 0, 1, -24)
 usersList.BackgroundTransparency = 1
 usersList.BorderSizePixel = 0
 usersList.ScrollBarThickness = 3
@@ -668,71 +841,72 @@ usersList.ScrollBarImageColor3 = GOLD
 usersList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 usersList.CanvasSize = UDim2.new(0, 0, 0, 0)
 usersList.Parent = pUsers
-
 local uLayout = Instance.new("UIListLayout")
 uLayout.Padding = UDim.new(0, 6)
 uLayout.Parent = usersList
 
 local function renderUsers(users)
-    for _, c in ipairs(usersList:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+    for _, c in ipairs(usersList:GetChildren()) do
+        if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+    end
     local count = 0
     for id, info in pairs(users) do
         count = count + 1
         local f = Instance.new("Frame")
-        f.Size = UDim2.new(1, -4, 0, 46)
+        f.Size = UDim2.new(1, -6, 0, 44)
         f.BackgroundColor3 = BG2
-        f.BackgroundTransparency = 0.4
+        f.BackgroundTransparency = 0.2
         f.BorderSizePixel = 0
         f.Parent = usersList
-        corner(f, 12)
-        stroke(f, GOLD, 0.4)
+        corner(f, 12) stroke(f, GOLD, 0.72)
 
         local img = Instance.new("ImageLabel")
-        img.Size = UDim2.new(0, 34, 0, 34)
-        img.Position = UDim2.new(0, 6, 0.5, -17)
-        img.BackgroundColor3 = BG
+        img.Size = UDim2.new(0, 32, 0, 32)
+        img.Position = UDim2.new(0, 7, 0, 6)
+        img.BackgroundColor3 = BG3
         img.BorderSizePixel = 0
-        img.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(id) .. "&w=48&h=48"
+        img.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(id) .. "&w=60&h=60"
         img.Parent = f
-        corner(img, 17)
+        corner(img, 16) stroke(img, GOLD, 0.5)
 
         local nm = Instance.new("TextLabel")
         nm.BackgroundTransparency = 1
-        nm.Position = UDim2.new(0, 48, 0, 4)
-        nm.Size = UDim2.new(1, -56, 0, 18)
+        nm.Position = UDim2.new(0, 47, 0, 6)
+        nm.Size = UDim2.new(1, -56, 0, 16)
         nm.Font = Enum.Font.GothamBold
         nm.Text = tostring(info.display or info.name)
-        nm.TextSize = 12
+        nm.TextSize = 11
         nm.TextColor3 = GOLD_SOFT
         nm.TextXAlignment = Enum.TextXAlignment.Left
-        nm.TextStrokeTransparency = 1
+        nm.TextTruncate = Enum.TextTruncate.AtEnd
         nm.Parent = f
 
         local un = Instance.new("TextLabel")
         un.BackgroundTransparency = 1
-        un.Position = UDim2.new(0, 48, 0, 22)
-        un.Size = UDim2.new(1, -56, 0, 18)
+        un.Position = UDim2.new(0, 47, 0, 22)
+        un.Size = UDim2.new(1, -56, 0, 14)
         un.Font = Enum.Font.Gotham
         un.Text = "@" .. tostring(info.name)
         un.TextSize = 9
         un.TextColor3 = DIM
         un.TextXAlignment = Enum.TextXAlignment.Left
-        un.TextStrokeTransparency = 1
+        un.TextTruncate = Enum.TextTruncate.AtEnd
         un.Parent = f
     end
+    usersHead.Text = "JOINER USERS ONLINE  (" .. tostring(count) .. ")"
     if count == 0 then
         local e = Instance.new("TextLabel")
-        e.Size = UDim2.new(1, -4, 0, 30)
+        e.Size = UDim2.new(1, -6, 0, 36)
         e.BackgroundTransparency = 1
         e.Font = Enum.Font.Gotham
         e.Text = "No joiner users online"
         e.TextSize = 10
         e.TextColor3 = DIM
-        e.TextStrokeTransparency = 1
         e.Parent = usersList
     end
 end
 
+-- tag + highlight
 local marked, activeUsers = {}, {}
 local TAG_TEXT = "Meowlzz Joiner user"
 
@@ -824,148 +998,17 @@ LP.CharacterAdded:Connect(function()
     if info then applyMark(LP, info) end
 end)
 
--- ===== CONFIG PAGE =====
-local cfgLayout = Instance.new("UIListLayout")
-cfgLayout.Padding = UDim.new(0, 6)
-cfgLayout.Parent = pConfig
-
-local function row(h)
-    local f = Instance.new("Frame")
-    f.Size = UDim2.new(1, 0, 0, h)
-    f.BackgroundTransparency = 1
-    f.Parent = pConfig
-    return f
-end
-
-local r1 = row(30)
-local lbl = Instance.new("TextLabel")
-lbl.BackgroundTransparency = 1
-lbl.Size = UDim2.new(0, 78, 1, 0)
-lbl.Font = Enum.Font.GothamBold
-lbl.Text = "MIN GEN"
-lbl.TextSize = 10
-lbl.TextColor3 = GOLD
-lbl.TextXAlignment = Enum.TextXAlignment.Left
-lbl.TextStrokeTransparency = 1
-lbl.Parent = r1
-
-local box = Instance.new("TextBox")
-box.Position = UDim2.new(0, 82, 0, 0)
-box.Size = UDim2.new(0, 64, 1, 0)
-box.BackgroundColor3 = BG2
-box.BackgroundTransparency = 0.4
-box.BorderSizePixel = 0
-box.Font = Enum.Font.Gotham
-box.Text = "1"
-box.PlaceholderText = "1"
-box.TextSize = 10
-box.TextColor3 = TXT
-box.TextStrokeTransparency = 1
-box.ClearTextOnFocus = false
-box.Parent = r1
-corner(box, 8)
-stroke(box, GOLD, 0.5)
-box.FocusLost:Connect(function()
-    cfg.minVal = tonumber(box.Text) or 0
-    box.Text = tostring(cfg.minVal)
-    task.spawn(refresh)
-end)
-
-local unitBtns = {}
-local ux = 158
-for _, u in ipairs({ "K", "M", "B" }) do
-    local b = Instance.new("TextButton")
-    b.Position = UDim2.new(0, ux, 0, 0)
-    b.Size = UDim2.new(0, 32, 1, 0)
-    b.BackgroundColor3 = BG2
-    b.BackgroundTransparency = 0.4
-    b.BorderSizePixel = 0
-    b.Font = Enum.Font.GothamBold
-    b.Text = u
-    b.TextSize = 10
-    b.TextColor3 = GOLD
-    b.TextStrokeTransparency = 1
-    b.Parent = r1
-    corner(b, 8)
-    stroke(b, GOLD, 0.5)
-    unitBtns[u] = b
-    ux = ux + 36
-    b.MouseButton1Click:Connect(function()
-        cfg.unit = u
-        for k, bb in pairs(unitBtns) do
-            bb.BackgroundColor3 = (k == u) and GOLD or BG2
-            bb.BackgroundTransparency = (k == u) and 0 or 0.4
-            bb.TextColor3 = (k == u) and Color3.fromRGB(25, 20, 10) or GOLD
-        end
-        task.spawn(refresh)
-    end)
-end
-unitBtns.M.BackgroundColor3 = GOLD
-unitBtns.M.BackgroundTransparency = 0
-unitBtns.M.TextColor3 = Color3.fromRGB(25, 20, 10)
-
-local r2 = row(18)
-local rl = Instance.new("TextLabel")
-rl.BackgroundTransparency = 1
-rl.Size = UDim2.new(1, 0, 1, 0)
-rl.Font = Enum.Font.GothamBold
-rl.Text = "RARITIES"
-rl.TextSize = 10
-rl.TextColor3 = GOLD
-rl.TextXAlignment = Enum.TextXAlignment.Left
-rl.TextStrokeTransparency = 1
-rl.Parent = r2
-
-local r3 = row(32)
-local rx = 0
-local function toggle(key, label)
-    local b = Instance.new("TextButton")
-    b.Position = UDim2.new(0, rx, 0, 0)
-    b.Size = UDim2.new(0, 96, 1, 0)
-    b.BackgroundColor3 = cfg[key] and GOLD or BG2
-    b.BackgroundTransparency = cfg[key] and 0 or 0.4
-    b.BorderSizePixel = 0
-    b.Font = Enum.Font.GothamBold
-    b.Text = label
-    b.TextSize = 9
-    b.TextColor3 = cfg[key] and Color3.fromRGB(25, 20, 10) or GOLD
-    b.TextStrokeTransparency = 1
-    b.Parent = r3
-    corner(b, 8)
-    stroke(b, GOLD, 0.5)
-    rx = rx + 100
-    b.MouseButton1Click:Connect(function()
-        cfg[key] = not cfg[key]
-        b.BackgroundColor3 = cfg[key] and GOLD or BG2
-        b.BackgroundTransparency = cfg[key] and 0 or 0.4
-        b.TextColor3 = cfg[key] and Color3.fromRGB(25, 20, 10) or GOLD
-        task.spawn(refresh)
-    end)
-end
-toggle("good", "BRAINROT GOOD")
-toggle("secret", "SECRET")
-toggle("og", "OG")
-
-local hint = Instance.new("TextLabel")
-hint.Size = UDim2.new(1, 0, 0, 32)
-hint.BackgroundTransparency = 1
-hint.Font = Enum.Font.Gotham
-hint.Text = "Notifications: max 3, 3.5s each. Logs auto-clear with CLEAR LOGS."
-hint.TextSize = 9
-hint.TextWrapped = true
-hint.TextColor3 = DIM
-hint.TextXAlignment = Enum.TextXAlignment.Left
-hint.TextStrokeTransparency = 1
-hint.Parent = pConfig
-
--- ===== Header buttons + drag =====
+-- ===== header buttons + drag =====
+local OPEN_SIZE = UDim2.new(0, 430, 0, 292)
 local minimized = false
-headBtn("−", -60, function()
+headBtn("-", -62, function()
     minimized = not minimized
     body.Visible = not minimized
-    main.Size = minimized and UDim2.new(0, 440, 0, 52) or UDim2.new(0, 440, 0, 350)
+    TweenService:Create(main, TweenInfo.new(0.18), {
+        Size = minimized and UDim2.new(0, 430, 0, 40) or OPEN_SIZE
+    }):Play()
 end)
-headBtn("✕", -30, function() gui:Destroy() end)
+headBtn("X", -32, function() gui:Destroy() end)
 
 local dragging, dragStart, startPos = false, nil, nil
 header.InputBegan:Connect(function(i)
@@ -981,8 +1024,15 @@ UserInputService.InputChanged:Connect(function(i)
     end
 end)
 
--- ===== Inicialização =====
-setTab("finder")
+-- mobile scaling
+if UserInputService.TouchEnabled then
+    local sc = Instance.new("UIScale")
+    sc.Scale = 0.86
+    sc.Parent = main
+end
+
+setTab("logs")
+renderUsers({})
 task.spawn(refresh)
 task.spawn(function()
     while gui.Parent do
@@ -997,4 +1047,4 @@ task.spawn(function()
     end
 end)
 
-print("[MeowlzzFinder] V6 Gold Edition loaded")
+print("[Meowlzz Finder] V5 loaded")
