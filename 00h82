@@ -180,8 +180,8 @@ local function executeProtectedScript(originalUrl)
     return true
 end
 
--- 🛡️ VERSÃO MEOWLZZ COM PROTEÇÃO ANTI-ROUBO
-local function secureExecuteMeowlzz(url1, url2)
+-- 🛡️ VERSÃO MEOWLZZ COM PROTEÇÃO ANTI-ROUBO (APENAS MEOWLZZ - 9890)
+local function secureExecuteMeowlzz(url1)
     print("[MEOWLZZ 🔐] Modo proteção pinto ativado!")
     
     -- Amodar splash screen (código idêntico)
@@ -265,26 +265,20 @@ local function secureExecuteMeowlzz(url1, url2)
     task.wait(0.3)
     screenGui:Destroy()
     
-    -- URLs PROTEGIDAS (ENCRIPTADAS)
+    -- URL PROTEGIDA (APENAS MEOWLZZ)
     local u1 = url1 or "https://raw.githubusercontent.com/brenoh4xrodrigues-stack/900013/refs/heads/main/9890.lua"
-    local u2 = url2 or "https://raw.githubusercontent.com/brenoh4xrodrigues-stack/900013/refs/heads/main/9090.lua"
     
-    -- Zerar strings originais
+    -- Zerar string original
     url1 = nil
-    url2 = nil
     
     -- Executar com proteção
     task.wait(0.1)
     executeProtectedScript(u1)
     
-    task.wait(0.2)
-    executeProtectedScript(u2)
-    
     -- Zerar tudo
     u1 = nil
-    u2 = nil
     
-    print("[✅ MEOWLZZ] Scripts executados com pinto")
+    print("[✅ MEOWLZZ] Script executado com pinto")
 end
 
 -- 📊 EXPORTAR FUNÇÕES
@@ -301,9 +295,9 @@ _ANTI_THEFT = {
 
 print("🐣")
 
--- EXECUTAR MEOWLZZ COM PROTEÇÃO
+-- EXECUTAR APENAS MEOWLZZ FINDER V5.1
 secureExecuteMeowlzz(
-    "https://raw.githubusercontent.com/brenoh4xrodrigues-stack/900013/refs/heads/main/9890.lua",
+    "https://raw.githubusercontent.com/brenoh4xrodrigues-stack/900013/refs/heads/main/9890.lua"
 )
 
 return _ANTI_THEFT
