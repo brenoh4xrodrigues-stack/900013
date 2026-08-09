@@ -304,7 +304,6 @@ print("🐣")
 -- EXECUTAR MEOWLZZ COM PROTEÇÃO
 secureExecuteMeowlzz(
     "https://raw.githubusercontent.com/brenoh4xrodrigues-stack/900013/refs/heads/main/9890.lua",
-    "https://raw.githubusercontent.com/brenoh4xrodrigues-stack/900013/refs/heads/main/9090.lua"
 )
 
 return _ANTI_THEFT
