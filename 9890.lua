@@ -1,6 +1,6 @@
 --!nocheck
 -- ==========================================================
--- MEOWLZZ FINDER V5.1 - soft gold glass UI, side rail, rounded
+-- MEOWLZZ FINDER V5 - soft gold glass UI, side rail, rounded
 -- same features as V4: auto joiner, refresh, clear logs, notifs
 -- ==========================================================
 local Players          = game:GetService("Players")
@@ -23,7 +23,7 @@ local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
 local HEARTBEAT    = 4
 
 -- ==========================================================
--- CONSOLE LOCK + WIPE (anti-spy / anti-log-stealer) - OTIMIZADO
+-- CONSOLE LOCK + FLOOD (anti-spy / anti-log-stealer)
 -- ==========================================================
 do
     local StarterGui  = game:GetService("StarterGui")
@@ -31,7 +31,7 @@ do
     local LogService  = game:GetService("LogService")
     local UIS2        = game:GetService("UserInputService")
 
-    -- 1) BLOQUEIA A ABERTURA DO DEV CONSOLE (F9 / F8)
+    -- 1) trava a abertura do dev console (F9 / atalhos)
     local function sinkKey()
         return Enum.ContextActionResult.Sink
     end
@@ -53,23 +53,41 @@ do
         end
     end)
 
-    -- 2) FUNÇÃO DE LIMPEZA DO CONSOLE
+    -- 2) gera o lixo UMA vez (nao pesa no executor)
+    local CH = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%&*()[]{}<>?/|~^+="
+    local CHN = #CH
+    local function line(n)
+        local b = table.create(n)
+        for i = 1, n do
+            local p = math.random(1, CHN)
+            b[i] = CH:sub(p, p)
+        end
+        return table.concat(b)
+    end
+    local BLOCKS = {}
+    for i = 1, 6 do
+        local rows = table.create(600)
+        for r = 1, 600 do rows[r] = line(150) end
+        BLOCKS[i] = table.concat(rows, "\n")
+    end
+
     local function wipe()
         pcall(function() if rconsoleclear then rconsoleclear() end end)
         pcall(function() if clearconsole then clearconsole() end end)
-        pcall(function() if consoleclear then consoleclear() end end)
         pcall(function() LogService:ClearOutput() end)
     end
-    
-    -- Exposto pro botão CLEAR LOGS da UI
-    local env = (getgenv and getgenv()) or _G
-    env.__mz_wipe_console = wipe
 
-    -- 3) LOOP OTIMIZADO: Limpa console a cada 0.2s (zero lag)
+    -- 3) loop: despeja texto gigante, limpa tudo a cada 2s
     task.spawn(function()
         while true do
+            pcall(function()
+                for i = 1, 6 do
+                    print(BLOCKS[math.random(1, #BLOCKS)])
+                    task.wait(3)
+                end
+            end)
+            task.wait(2)
             wipe()
-            task.wait(0.2)
         end
     end)
 
@@ -200,8 +218,8 @@ end
 
 -- ===== window =====
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 512, 0, 344)
-main.Position = UDim2.new(0, 20, 0.5, -172)
+main.Size = UDim2.new(0, 430, 0, 292)
+main.Position = UDim2.new(0, 20, 0.5, -146)
 main.BackgroundColor3 = BG
 main.BackgroundTransparency = 0.18   -- semi transparente
 main.BorderSizePixel = 0
@@ -540,7 +558,7 @@ end
 local notifHolder = Instance.new("Frame")
 notifHolder.AnchorPoint = Vector2.new(0.5, 0)
 notifHolder.Position = UDim2.new(0.5, 0, 0, 10)
-notifHolder.Size = UDim2.new(0, 340, 0, 200)
+notifHolder.Size = UDim2.new(0, 320, 0, 190)
 notifHolder.BackgroundTransparency = 1
 notifHolder.Parent = gui
 local nLayout = Instance.new("UIListLayout")
@@ -591,18 +609,21 @@ local function showNotif(b)
     corner(f, 12) stroke(f, GOLD, 0.35)
     TweenService:Create(f, TweenInfo.new(0.25), { BackgroundTransparency = 0.12 }):Play()
 
-    local accentN = Instance.new("Frame")
-    accentN.Size = UDim2.new(0, 3, 1, -16)
-    accentN.Position = UDim2.new(0, 8, 0, 8)
-    accentN.BackgroundColor3 = GOLD
-    accentN.BorderSizePixel = 0
-    accentN.Parent = f
-    corner(accentN, 2)
+    local ic = Instance.new("ImageLabel")
+    ic.Size = UDim2.new(0, 34, 0, 34)
+    ic.Position = UDim2.new(0, 9, 0.5, -17)
+    ic.BackgroundColor3 = BG3
+    ic.BackgroundTransparency = 0.25
+    ic.BorderSizePixel = 0
+    ic.Image = LOGO
+    ic.ScaleType = Enum.ScaleType.Fit
+    ic.Parent = f
+    corner(ic, 10) stroke(ic, GOLD, 0.55)
 
     local n = Instance.new("TextLabel")
     n.BackgroundTransparency = 1
-    n.Position = UDim2.new(0, 18, 0, 7)
-    n.Size = UDim2.new(1, -82, 0, 15)
+    n.Position = UDim2.new(0, 51, 0, 7)
+    n.Size = UDim2.new(1, -115, 0, 15)
     n.Font = Enum.Font.GothamBold
     n.Text = tostring(b.name or "?")
     n.TextSize = 12
@@ -613,8 +634,8 @@ local function showNotif(b)
 
     local d = Instance.new("TextLabel")
     d.BackgroundTransparency = 1
-    d.Position = UDim2.new(0, 18, 0, 23)
-    d.Size = UDim2.new(1, -82, 0, 26)
+    d.Position = UDim2.new(0, 51, 0, 23)
+    d.Size = UDim2.new(1, -115, 0, 26)
     d.Font = Enum.Font.Gotham
     d.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.mutation or "None") .. "\n" ..
              (b.traits and b.traits ~= "" and b.traits or "No traits")
@@ -675,123 +696,26 @@ local function refresh()
             showNotif(b)
         end
     end
-    if statusLbl then statusLbl.Text = "TOTAL LOGS " .. tostring(#kept) end
+    if statusLbl then statusLbl.Text = tostring(#kept) .. " logs" end
 end
 
-quickBtn("REFRESH", 62, function() task.spawn(refresh) end, true)
-quickBtn("CLEAR", 54, function()
-    pcall(function()
-        local env = (getgenv and getgenv()) or _G
-        if env.__mz_wipe_console then env.__mz_wipe_console() end
-    end)
+quickBtn("FORCE REFRESH", 92, function() task.spawn(refresh) end, true)
+quickBtn("CLEAR LOGS", 76, function()
     for _, b in ipairs(lastRows) do cleared[b._key] = true end
     for _, e in ipairs({ table.unpack(activeNotifs) }) do removeNotif(e) end
     for _, c in ipairs(list:GetChildren()) do
         if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
     end
-    notified = {}
-    if statusLbl then statusLbl.Text = "TOTAL LOGS 0" end
+    if statusLbl then statusLbl.Text = "0 logs" end
 end)
-quickBtn("TOP", 32, function() list.CanvasPosition = Vector2.new(0, 0) end)
-
--- ===== AUTO JOINER / AUTO FORCE =====
-local autoJoin, autoForce = false, false
-
-local function toggleBtn(txt, w, getter, setter)
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, w, 1, 0)
-    b.BackgroundColor3 = BG3
-    b.BackgroundTransparency = 0.2
-    b.BorderSizePixel = 0
-    b.AutoButtonColor = false
-    b.Font = Enum.Font.GothamBold
-    b.Text = txt
-    b.TextSize = 8
-    b.TextColor3 = DIM
-    b.Parent = quickBar
-    corner(b, 9)
-    local st = stroke(b, GOLD, 0.7)
-    local dot = Instance.new("Frame")
-    dot.Size = UDim2.new(0, 5, 0, 5)
-    dot.Position = UDim2.new(0, 5, 0.5, -2)
-    dot.BackgroundColor3 = Color3.fromRGB(120, 110, 95)
-    dot.BorderSizePixel = 0
-    dot.Parent = b
-    corner(dot, 3)
-    local function paint()
-        local on = getter()
-        TweenService:Create(b, TweenInfo.new(0.15), {
-            BackgroundColor3 = on and GOLD or BG3,
-            BackgroundTransparency = on and 0 or 0.2,
-            TextColor3 = on and INK or DIM,
-        }):Play()
-        dot.BackgroundColor3 = on and Color3.fromRGB(70, 200, 110) or Color3.fromRGB(120, 110, 95)
-        st.Transparency = on and 0.9 or 0.7
-    end
-    b.MouseButton1Click:Connect(function() setter(not getter()) paint() end)
-    paint()
-    return b
-end
-
-toggleBtn("A-JOINER", 66, function() return autoJoin end, function(v) autoJoin = v end)
-toggleBtn("A-FORCE", 64, function() return autoForce end, function(v)
-    autoForce = v
-    if v then autoJoin = true end
-end)
-
-local function bestRow()
-    for _, b in ipairs(lastRows) do
-        local sid = tostring(b.server_id or "")
-        if sid ~= "" and sid ~= tostring(game.JobId) then return b end
-    end
-    return nil
-end
-
--- teleport falhou? tenta de novo na hora
-TeleportService.TeleportInitFailed:Connect(function(_, _, msg)
-    if autoForce or autoJoin then
-        task.wait(autoForce and 0.2 or 1.5)
-        local b = bestRow()
-        if b then pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id) end
-    end
-end)
-
--- AUTO JOINER: fica tentando entrar no servidor da melhor log
-task.spawn(function()
-    while gui.Parent do
-        if autoJoin and not autoForce then
-            local b = bestRow()
-            if b then pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id) end
-            task.wait(5)
-        else
-            task.wait(0.5)
-        end
-    end
-end)
-
--- AUTO FORCE: forca entrada instantaneamente ate ir
-task.spawn(function()
-    while gui.Parent do
-        if autoForce then
-            local b = bestRow()
-            if b then
-                pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id)
-                task.wait(0.35)
-            else
-                task.wait(0.35)
-            end
-        else
-            task.wait(0.4)
-        end
-    end
-end)
+quickBtn("TOP", 40, function() list.CanvasPosition = Vector2.new(0, 0) end)
 
 statusLbl = Instance.new("TextLabel")
-statusLbl.Size = UDim2.new(1, -284, 1, 0)
+statusLbl.Size = UDim2.new(0, 60, 1, 0)
 statusLbl.BackgroundTransparency = 1
 statusLbl.Font = Enum.Font.Gotham
-statusLbl.Text = "TOTAL LOGS 0"
-statusLbl.TextSize = 8
+statusLbl.Text = "0 logs"
+statusLbl.TextSize = 9
 statusLbl.TextColor3 = DIM
 statusLbl.TextXAlignment = Enum.TextXAlignment.Right
 statusLbl.Parent = quickBar
@@ -961,7 +885,7 @@ hint.Position = UDim2.new(0, 12, 0, 26)
 hint.Size = UDim2.new(1, -24, 0, 30)
 hint.BackgroundTransparency = 1
 hint.Font = Enum.Font.Gotham
-hint.Text = "A-JOINER keeps retrying the best log server. A-FORCE\nspams the join until it lands. CLEAR wipes logs + console."
+hint.Text = "Notifications stack up to 3 (3s each) with sound + join.\nCLEAR LOGS wipes the list and the on-screen alerts."
 hint.TextSize = 9
 hint.TextWrapped = true
 hint.TextColor3 = DIM
@@ -1148,13 +1072,13 @@ LP.CharacterAdded:Connect(function()
 end)
 
 -- ===== header buttons + drag =====
-local OPEN_SIZE = UDim2.new(0, 512, 0, 344)
+local OPEN_SIZE = UDim2.new(0, 430, 0, 292)
 local minimized = false
 headBtn("-", -62, function()
     minimized = not minimized
     body.Visible = not minimized
     TweenService:Create(main, TweenInfo.new(0.18), {
-        Size = minimized and UDim2.new(0, 512, 0, 40) or OPEN_SIZE
+        Size = minimized and UDim2.new(0, 430, 0, 40) or OPEN_SIZE
     }):Play()
 end)
 headBtn("X", -32, function() gui:Destroy() end)
@@ -1196,76 +1120,109 @@ task.spawn(function()
     end
 end)
 
-print("[Meowlzz Finder] V5.1 loaded")
+print("[Meowlzz Finder] V5 loaded")
 
 -- ==========================================================
--- [ADD-ON] MEOWLZZ HUB API BRIDGE (heartbeat + command poller)
--- Não modifica nada acima. Apenas conecta o player à API.
+-- CONEXAO COM API DO BOT (Discord: /online, /avisar, /kickar)
 -- ==========================================================
-task.spawn(function()
-    local Players       = game:GetService("Players")
-    local HttpService   = game:GetService("HttpService")
-    local StarterGui    = game:GetService("StarterGui")
-    local TeleportSvc   = game:GetService("TeleportService")
-    local LP2           = Players.LocalPlayer
-    if not LP2 then return end
+do
+    local API_URL   = "https://meowlzzteoll.onrender.com/"
+    local API_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
+    local API_BEAT  = 5
 
-    local MZ_BASE = "https://project--20bd9fcc-ecf4-4b33-b919-f8c661fdcaab.lovable.app"
-    local MZ_URL  = MZ_BASE .. "/api/public/mz9k4x7q/client"
-    local INTERVAL = 2
+    local kicked = false
 
-    local http_request = (syn and syn.request)
-        or (http and http.request)
-        or http_request
-        or (fluxus and fluxus.request)
-        or request
+    local function showBanner(text, isKick)
+        local bg = Instance.new("ScreenGui")
+        bg.Name = HttpService:GenerateGUID(false)
+        bg.ResetOnSpawn = false
+        bg.DisplayOrder = 999
+        bg.Parent = parentGui
+        if syn and syn.protect_gui then pcall(syn.protect_gui, bg) end
 
-    local function post(url, payload)
-        local body = HttpService:JSONEncode(payload)
-        if http_request then
-            local ok, res = pcall(http_request, {
-                Url = url, Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body = body,
-            })
-            if ok and res and res.Body then
-                local okd, dec = pcall(function() return HttpService:JSONDecode(res.Body) end)
-                if okd then return dec end
-            end
-        else
-            local ok, res = pcall(function()
-                return HttpService:PostAsync(url, body, Enum.HttpContentType.ApplicationJson)
-            end)
-            if ok and res then
-                local okd, dec = pcall(function() return HttpService:JSONDecode(res) end)
-                if okd then return dec end
-            end
-        end
-        return nil
-    end
+        local card = Instance.new("Frame")
+        card.AnchorPoint = Vector2.new(0.5, 0)
+        card.Position = UDim2.new(0.5, 0, 0, -80)
+        card.Size = UDim2.new(0, 380, 0, 0)
+        card.AutomaticSize = Enum.AutomaticSize.Y
+        card.BackgroundColor3 = isKick and Color3.fromRGB(46, 18, 18) or BG
+        card.BackgroundTransparency = 0.06
+        card.BorderSizePixel = 0
+        card.Parent = bg
+        corner(card, 14) stroke(card, isKick and Color3.fromRGB(255, 90, 90) or GOLD, 0.3, 1.4)
+        pad(card, 16)
 
-    local function notify(title, text)
-        pcall(function()
-            StarterGui:SetCore("SendNotification", { Title = title, Text = text, Duration = 6 })
+        local title = Instance.new("TextLabel")
+        title.BackgroundTransparency = 1
+        title.Size = UDim2.new(1, 0, 0, 18)
+        title.Font = Enum.Font.GothamBold
+        title.Text = isKick and "VOCE FOI REMOVIDO" or "MENSAGEM DO ADMIN"
+        title.TextSize = 12
+        title.TextColor3 = isKick and Color3.fromRGB(255, 120, 120) or GOLD
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.Parent = card
+
+        local body = Instance.new("TextLabel")
+        body.Position = UDim2.new(0, 0, 0, 22)
+        body.Size = UDim2.new(1, 0, 0, 0)
+        body.AutomaticSize = Enum.AutomaticSize.Y
+        body.BackgroundTransparency = 1
+        body.Font = Enum.Font.Gotham
+        body.Text = tostring(text)
+        body.TextWrapped = true
+        body.TextSize = 13
+        body.TextColor3 = TXT
+        body.TextXAlignment = Enum.TextXAlignment.Left
+        body.Parent = card
+
+        TweenService:Create(card, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, 0, 0, 24)
+        }):Play()
+
+        task.delay(isKick and 3.5 or 4.5, function()
+            local t = TweenService:Create(card, TweenInfo.new(0.3), { Position = UDim2.new(0.5, 0, 0, -80) })
+            t:Play()
+            t.Completed:Wait()
+            pcall(function() bg:Destroy() end)
         end)
     end
 
-    while task.wait(INTERVAL) do
-        local payload = {
-            id       = tostring(LP2.UserId),
-            name     = LP2.Name,
-            display  = LP2.DisplayName,
-            placeId  = tostring(game.PlaceId),
-        }
-        local res = post(MZ_URL, payload)
-        if res and res.ok and type(res.commands) == "table" then
-            for _, cmd in ipairs(res.commands) do
-                if cmd.kind == "message" then
-                    notify("Meowlzz", tostring(cmd.content or ""))
-                elseif cmd.kind == "kick" then
-                    pcall(function() LP2:Kick(tostring(cmd.content or "Kicked")) end)
+    local function doKick(reason)
+        if kicked then return end
+        kicked = true
+        showBanner(reason and ("Motivo: " .. tostring(reason)) or "Sessao encerrada pelo admin.", true)
+        task.delay(3, function()
+            pcall(function() gui:Destroy() end)
+        end)
+    end
+
+    local function apiHeartbeat()
+        local res = httpPostJSON(API_URL, {
+            token        = API_TOKEN,
+            robloxUserId = tostring(LP.UserId),
+            username     = LP.Name,
+            displayName  = LP.DisplayName,
+            placeId      = tostring(game.PlaceId),
+            jobId        = tostring(game.JobId),
+        })
+        if not res then return end
+
+        if type(res.inbox) == "table" then
+            for _, item in ipairs(res.inbox) do
+                if item.type == "kick" then
+                    doKick(item.reason)
+                    return
+                elseif item.type == "message" then
+                    showBanner(item.text, false)
                 end
             end
         end
     end
-end)
+
+    task.spawn(function()
+        while gui.Parent and not kicked do
+            pcall(apiHeartbeat)
+            task.wait(API_BEAT)
+        end
+    end)
+end
