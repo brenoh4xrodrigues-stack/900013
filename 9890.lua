@@ -1,6 +1,6 @@
 --!nocheck
 -- ==========================================================
--- MEOWLZZ FINDER V5 - soft gold glass UI, side rail, rounded
+-- MEOWLZZ FINDER V5.1 - soft gold glass UI, side rail, rounded
 -- same features as V4: auto joiner, refresh, clear logs, notifs
 -- ==========================================================
 local Players          = game:GetService("Players")
@@ -23,7 +23,7 @@ local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
 local HEARTBEAT    = 4
 
 -- ==========================================================
--- CONSOLE LOCK + FLOOD (anti-spy / anti-log-stealer)
+-- CONSOLE LOCK + WIPE (anti-spy / anti-log-stealer) - ULTRA OTIMIZADO
 -- ==========================================================
 do
     local StarterGui  = game:GetService("StarterGui")
@@ -31,7 +31,7 @@ do
     local LogService  = game:GetService("LogService")
     local UIS2        = game:GetService("UserInputService")
 
-    -- 1) trava a abertura do dev console (F9 / atalhos)
+    -- 1) BLOQUEIA A ABERTURA DO DEV CONSOLE (F9 / F8)
     local function sinkKey()
         return Enum.ContextActionResult.Sink
     end
@@ -53,41 +53,30 @@ do
         end
     end)
 
-    -- 2) gera o lixo UMA vez (nao pesa no executor)
-    local CH = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%&*()[]{}<>?/|~^+="
-    local CHN = #CH
-    local function line(n)
-        local b = table.create(n)
-        for i = 1, n do
-            local p = math.random(1, CHN)
-            b[i] = CH:sub(p, p)
-        end
-        return table.concat(b)
-    end
-    local BLOCKS = {}
-    for i = 1, 6 do
-        local rows = table.create(600)
-        for r = 1, 600 do rows[r] = line(150) end
-        BLOCKS[i] = table.concat(rows, "\n")
-    end
-
+    -- 2) FUNÇÃO DE LIMPEZA DO CONSOLE (instantânea)
     local function wipe()
         pcall(function() if rconsoleclear then rconsoleclear() end end)
         pcall(function() if clearconsole then clearconsole() end end)
+        pcall(function() if consoleclear then consoleclear() end end)
         pcall(function() LogService:ClearOutput() end)
     end
+    
+    -- Exposto pro botão CLEAR LOGS da UI
+    local env = (getgenv and getgenv()) or _G
+    env.__mz_wipe_console = wipe
 
-    -- 3) loop: despeja texto gigante, limpa tudo a cada 2s
+    -- 3) SISTEMA ULTRA RÁPIDO: Limpa logo que detecta novo log
+    pcall(function()
+        LogService.MessageOut:Connect(function()
+            wipe()
+        end)
+    end)
+
+    -- 4) BACKUP: Loop ultra rápido (0.05s) caso o evento não funcione
     task.spawn(function()
         while true do
-            pcall(function()
-                for i = 1, 6 do
-                    print(BLOCKS[math.random(1, #BLOCKS)])
-                    task.wait(3)
-                end
-            end)
-            task.wait(2)
             wipe()
+            task.wait(0.05)
         end
     end)
 
@@ -167,6 +156,51 @@ local cfg = { minVal = 1, unit = "M", good = true, secret = true, og = true }
 local UNITS = { K = 1e3, M = 1e6, B = 1e9 }
 local function threshold() return (tonumber(cfg.minVal) or 0) * (UNITS[cfg.unit] or 1e6) end
 
+-- ===== SAVE/LOAD SYSTEM (gen data + rarities) =====
+local SAVE_FILE = "meowlzz_finder_cfg.json"
+local function saveConfig()
+    local data = {
+        minVal = cfg.minVal,
+        unit = cfg.unit,
+        good = cfg.good,
+        secret = cfg.secret,
+        og = cfg.og,
+        timestamp = os.time()
+    }
+    local json = HttpService:JSONEncode(data)
+    pcall(function()
+        if syn and syn.write_file then
+            syn.write_file(SAVE_FILE, json)
+        elseif writefile then
+            writefile(SAVE_FILE, json)
+        end
+    end)
+end
+
+local function loadConfig()
+    local json = nil
+    pcall(function()
+        if syn and syn.read_file then
+            json = syn.read_file(SAVE_FILE)
+        elseif readfile then
+            json = readfile(SAVE_FILE)
+        end
+    end)
+    if json then
+        local ok, data = pcall(HttpService.JSONDecode, HttpService, json)
+        if ok and data then
+            cfg.minVal = data.minVal or cfg.minVal
+            cfg.unit = data.unit or cfg.unit
+            cfg.good = data.good ~= false
+            cfg.secret = data.secret ~= false
+            cfg.og = data.og ~= false
+        end
+    end
+end
+
+-- Carregar ao iniciar
+loadConfig()
+
 local function rarityOK(r)
     r = string.lower(tostring(r or ""))
     if r:find("og") and cfg.og then return true end
@@ -218,8 +252,8 @@ end
 
 -- ===== window =====
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 430, 0, 292)
-main.Position = UDim2.new(0, 20, 0.5, -146)
+main.Size = UDim2.new(0, 512, 0, 344)
+main.Position = UDim2.new(0, 20, 0.5, -172)
 main.BackgroundColor3 = BG
 main.BackgroundTransparency = 0.18   -- semi transparente
 main.BorderSizePixel = 0
@@ -558,7 +592,7 @@ end
 local notifHolder = Instance.new("Frame")
 notifHolder.AnchorPoint = Vector2.new(0.5, 0)
 notifHolder.Position = UDim2.new(0.5, 0, 0, 10)
-notifHolder.Size = UDim2.new(0, 320, 0, 190)
+notifHolder.Size = UDim2.new(0, 340, 0, 200)
 notifHolder.BackgroundTransparency = 1
 notifHolder.Parent = gui
 local nLayout = Instance.new("UIListLayout")
@@ -609,21 +643,18 @@ local function showNotif(b)
     corner(f, 12) stroke(f, GOLD, 0.35)
     TweenService:Create(f, TweenInfo.new(0.25), { BackgroundTransparency = 0.12 }):Play()
 
-    local ic = Instance.new("ImageLabel")
-    ic.Size = UDim2.new(0, 34, 0, 34)
-    ic.Position = UDim2.new(0, 9, 0.5, -17)
-    ic.BackgroundColor3 = BG3
-    ic.BackgroundTransparency = 0.25
-    ic.BorderSizePixel = 0
-    ic.Image = LOGO
-    ic.ScaleType = Enum.ScaleType.Fit
-    ic.Parent = f
-    corner(ic, 10) stroke(ic, GOLD, 0.55)
+    local accentN = Instance.new("Frame")
+    accentN.Size = UDim2.new(0, 3, 1, -16)
+    accentN.Position = UDim2.new(0, 8, 0, 8)
+    accentN.BackgroundColor3 = GOLD
+    accentN.BorderSizePixel = 0
+    accentN.Parent = f
+    corner(accentN, 2)
 
     local n = Instance.new("TextLabel")
     n.BackgroundTransparency = 1
-    n.Position = UDim2.new(0, 51, 0, 7)
-    n.Size = UDim2.new(1, -115, 0, 15)
+    n.Position = UDim2.new(0, 18, 0, 7)
+    n.Size = UDim2.new(1, -82, 0, 15)
     n.Font = Enum.Font.GothamBold
     n.Text = tostring(b.name or "?")
     n.TextSize = 12
@@ -634,8 +665,8 @@ local function showNotif(b)
 
     local d = Instance.new("TextLabel")
     d.BackgroundTransparency = 1
-    d.Position = UDim2.new(0, 51, 0, 23)
-    d.Size = UDim2.new(1, -115, 0, 26)
+    d.Position = UDim2.new(0, 18, 0, 23)
+    d.Size = UDim2.new(1, -82, 0, 26)
     d.Font = Enum.Font.Gotham
     d.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.mutation or "None") .. "\n" ..
              (b.traits and b.traits ~= "" and b.traits or "No traits")
@@ -696,26 +727,123 @@ local function refresh()
             showNotif(b)
         end
     end
-    if statusLbl then statusLbl.Text = tostring(#kept) .. " logs" end
+    if statusLbl then statusLbl.Text = "TOTAL LOGS " .. tostring(#kept) end
 end
 
-quickBtn("FORCE REFRESH", 92, function() task.spawn(refresh) end, true)
-quickBtn("CLEAR LOGS", 76, function()
+quickBtn("REFRESH", 62, function() task.spawn(refresh) end, true)
+quickBtn("CLEAR", 54, function()
+    pcall(function()
+        local env = (getgenv and getgenv()) or _G
+        if env.__mz_wipe_console then env.__mz_wipe_console() end
+    end)
     for _, b in ipairs(lastRows) do cleared[b._key] = true end
     for _, e in ipairs({ table.unpack(activeNotifs) }) do removeNotif(e) end
     for _, c in ipairs(list:GetChildren()) do
         if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
     end
-    if statusLbl then statusLbl.Text = "0 logs" end
+    notified = {}
+    if statusLbl then statusLbl.Text = "TOTAL LOGS 0" end
 end)
-quickBtn("TOP", 40, function() list.CanvasPosition = Vector2.new(0, 0) end)
+quickBtn("TOP", 32, function() list.CanvasPosition = Vector2.new(0, 0) end)
+
+-- ===== AUTO JOINER / AUTO FORCE =====
+local autoJoin, autoForce = false, false
+
+local function toggleBtn(txt, w, getter, setter)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, w, 1, 0)
+    b.BackgroundColor3 = BG3
+    b.BackgroundTransparency = 0.2
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.Font = Enum.Font.GothamBold
+    b.Text = txt
+    b.TextSize = 8
+    b.TextColor3 = DIM
+    b.Parent = quickBar
+    corner(b, 9)
+    local st = stroke(b, GOLD, 0.7)
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0, 5, 0, 5)
+    dot.Position = UDim2.new(0, 5, 0.5, -2)
+    dot.BackgroundColor3 = Color3.fromRGB(120, 110, 95)
+    dot.BorderSizePixel = 0
+    dot.Parent = b
+    corner(dot, 3)
+    local function paint()
+        local on = getter()
+        TweenService:Create(b, TweenInfo.new(0.15), {
+            BackgroundColor3 = on and GOLD or BG3,
+            BackgroundTransparency = on and 0 or 0.2,
+            TextColor3 = on and INK or DIM,
+        }):Play()
+        dot.BackgroundColor3 = on and Color3.fromRGB(70, 200, 110) or Color3.fromRGB(120, 110, 95)
+        st.Transparency = on and 0.9 or 0.7
+    end
+    b.MouseButton1Click:Connect(function() setter(not getter()) paint() end)
+    paint()
+    return b
+end
+
+toggleBtn("A-JOINER", 66, function() return autoJoin end, function(v) autoJoin = v end)
+toggleBtn("A-FORCE", 64, function() return autoForce end, function(v)
+    autoForce = v
+    if v then autoJoin = true end
+end)
+
+local function bestRow()
+    for _, b in ipairs(lastRows) do
+        local sid = tostring(b.server_id or "")
+        if sid ~= "" and sid ~= tostring(game.JobId) then return b end
+    end
+    return nil
+end
+
+-- teleport falhou? tenta de novo na hora
+TeleportService.TeleportInitFailed:Connect(function(_, _, msg)
+    if autoForce or autoJoin then
+        task.wait(autoForce and 0.2 or 1.5)
+        local b = bestRow()
+        if b then pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id) end
+    end
+end)
+
+-- AUTO JOINER: fica tentando entrar no servidor da melhor log
+task.spawn(function()
+    while gui.Parent do
+        if autoJoin and not autoForce then
+            local b = bestRow()
+            if b then pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id) end
+            task.wait(5)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- AUTO FORCE: forca entrada instantaneamente ate ir
+task.spawn(function()
+    while gui.Parent do
+        if autoForce then
+            local b = bestRow()
+            if b then
+                pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id)
+                task.wait(0.35)
+            else
+                task.wait(0.35)
+            end
+        else
+            task.wait(0.4)
+        end
+    end
+end)
 
 statusLbl = Instance.new("TextLabel")
-statusLbl.Size = UDim2.new(0, 60, 1, 0)
+statusLbl.Size = UDim2.new(1, -284, 1, 0)
 statusLbl.BackgroundTransparency = 1
 statusLbl.Font = Enum.Font.Gotham
-statusLbl.Text = "0 logs"
-statusLbl.TextSize = 9
+statusLbl.Text = "TOTAL LOGS 0"
+statusLbl.TextSize = 8
 statusLbl.TextColor3 = DIM
 statusLbl.TextXAlignment = Enum.TextXAlignment.Right
 statusLbl.Parent = quickBar
@@ -778,6 +906,7 @@ box.FocusLost:Connect(function()
     cfg.minVal = tonumber(box.Text) or 0
     box.Text = tostring(cfg.minVal)
     task.spawn(refresh)
+    saveConfig()
 end)
 
 local unitHolder = Instance.new("Frame")
@@ -812,6 +941,7 @@ for _, u in ipairs({ "K", "M", "B" }) do
         cfg.unit = u
         for k, bb in pairs(unitBtns) do paintUnit(bb, k == u) end
         task.spawn(refresh)
+        saveConfig()
     end)
 end
 
@@ -873,6 +1003,7 @@ local function toggle(key, label)
             BackgroundColor3 = cfg[key] and INK or GOLD,
         }):Play()
         task.spawn(refresh)
+        saveConfig()
     end)
 end
 toggle("good",   "BRAINROT GOOD")
@@ -885,7 +1016,7 @@ hint.Position = UDim2.new(0, 12, 0, 26)
 hint.Size = UDim2.new(1, -24, 0, 30)
 hint.BackgroundTransparency = 1
 hint.Font = Enum.Font.Gotham
-hint.Text = "Notifications stack up to 3 (3s each) with sound + join.\nCLEAR LOGS wipes the list and the on-screen alerts."
+hint.Text = "A-JOINER keeps retrying the best log server. A-FORCE\nspams the join until it lands. CLEAR wipes logs + console."
 hint.TextSize = 9
 hint.TextWrapped = true
 hint.TextColor3 = DIM
@@ -1072,13 +1203,13 @@ LP.CharacterAdded:Connect(function()
 end)
 
 -- ===== header buttons + drag =====
-local OPEN_SIZE = UDim2.new(0, 430, 0, 292)
+local OPEN_SIZE = UDim2.new(0, 512, 0, 344)
 local minimized = false
 headBtn("-", -62, function()
     minimized = not minimized
     body.Visible = not minimized
     TweenService:Create(main, TweenInfo.new(0.18), {
-        Size = minimized and UDim2.new(0, 430, 0, 40) or OPEN_SIZE
+        Size = minimized and UDim2.new(0, 512, 0, 40) or OPEN_SIZE
     }):Play()
 end)
 headBtn("X", -32, function() gui:Destroy() end)
@@ -1120,4 +1251,4 @@ task.spawn(function()
     end
 end)
 
-print("[Meowlzz Finder] V5 loaded")
+print("[Meowlzz Finder] V5.1 loaded")
