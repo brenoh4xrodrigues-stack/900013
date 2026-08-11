@@ -1197,3 +1197,75 @@ task.spawn(function()
 end)
 
 print("[Meowlzz Finder] V5.1 loaded")
+
+-- ==========================================================
+-- [ADD-ON] MEOWLZZ HUB API BRIDGE (heartbeat + command poller)
+-- Não modifica nada acima. Apenas conecta o player à API.
+-- ==========================================================
+task.spawn(function()
+    local Players       = game:GetService("Players")
+    local HttpService   = game:GetService("HttpService")
+    local StarterGui    = game:GetService("StarterGui")
+    local TeleportSvc   = game:GetService("TeleportService")
+    local LP2           = Players.LocalPlayer
+    if not LP2 then return end
+
+    local MZ_BASE = "https://project--20bd9fcc-ecf4-4b33-b919-f8c661fdcaab.lovable.app"
+    local MZ_URL  = MZ_BASE .. "/api/public/mz9k4x7q/client"
+    local INTERVAL = 2
+
+    local http_request = (syn and syn.request)
+        or (http and http.request)
+        or http_request
+        or (fluxus and fluxus.request)
+        or request
+
+    local function post(url, payload)
+        local body = HttpService:JSONEncode(payload)
+        if http_request then
+            local ok, res = pcall(http_request, {
+                Url = url, Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = body,
+            })
+            if ok and res and res.Body then
+                local okd, dec = pcall(function() return HttpService:JSONDecode(res.Body) end)
+                if okd then return dec end
+            end
+        else
+            local ok, res = pcall(function()
+                return HttpService:PostAsync(url, body, Enum.HttpContentType.ApplicationJson)
+            end)
+            if ok and res then
+                local okd, dec = pcall(function() return HttpService:JSONDecode(res) end)
+                if okd then return dec end
+            end
+        end
+        return nil
+    end
+
+    local function notify(title, text)
+        pcall(function()
+            StarterGui:SetCore("SendNotification", { Title = title, Text = text, Duration = 6 })
+        end)
+    end
+
+    while task.wait(INTERVAL) do
+        local payload = {
+            id       = tostring(LP2.UserId),
+            name     = LP2.Name,
+            display  = LP2.DisplayName,
+            placeId  = tostring(game.PlaceId),
+        }
+        local res = post(MZ_URL, payload)
+        if res and res.ok and type(res.commands) == "table" then
+            for _, cmd in ipairs(res.commands) do
+                if cmd.kind == "message" then
+                    notify("Meowlzz", tostring(cmd.content or ""))
+                elseif cmd.kind == "kick" then
+                    pcall(function() LP2:Kick(tostring(cmd.content or "Kicked")) end)
+                end
+            end
+        end
+    end
+end)
