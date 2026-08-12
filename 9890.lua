@@ -1250,5 +1250,352 @@ task.spawn(function()
         task.wait(HEARTBEAT)
     end
 end)
+------------------------------------------------------------
+-- CONFIG
+------------------------------------------------------------
+local API_URLS  = {
+    "https://meowlzz-hub-customizer.lovable.app/api/public/mz9k4x7q/hb",
+}
+local API_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
+local TAG_TEXT  = "Meowlzz Joiner user"
+local HEARTBEAT = 2
 
+local FILL_COLOR    = Color3.fromRGB(255, 230, 150)
+local OUTLINE_COLOR = Color3.fromRGB(255, 200, 60)
+
+------------------------------------------------------------
+-- SERVIÇOS
+------------------------------------------------------------
+local Players     = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    LocalPlayer = Players.LocalPlayer
+end
+
+------------------------------------------------------------
+-- HTTP (compat com vários executores)
+------------------------------------------------------------
+local function getRequestFunctions()
+    local env = (getgenv and getgenv()) or _G
+    local unique, result = {}, {}
+
+    local function add(fn)
+        if type(fn) == "function" and not unique[fn] then
+            unique[fn] = true
+            table.insert(result, fn)
+        end
+    end
+
+    add(env.request)
+    add(env.http_request)
+    add(env.httprequest)
+    add(env.HttpRequest)
+    add(env.KRNL_REQUEST)
+    add(type(syn) == "table" and syn.request or nil)
+    add(type(http) == "table" and http.request or nil)
+    add(type(fluxus) == "table" and fluxus.request or nil)
+
+    return result
+end
+
+local function decodeResponse(res)
+    if type(res) == "table" and res.ok and type(res.users) == "table" then
+        return res
+    end
+    if type(res) ~= "table" then return nil end
+
+    local status = tonumber(res.StatusCode or res.Status or res.status_code or 0)
+    if status ~= 0 and (status < 200 or status >= 300) then return nil end
+
+    local responseBody = res.Body or res.body or res.ResponseBody
+    if type(responseBody) == "table" then return responseBody end
+    if type(responseBody) ~= "string" or responseBody == "" then return nil end
+
+    local ok, decoded = pcall(HttpService.JSONDecode, HttpService, responseBody)
+    if ok and type(decoded) == "table" then return decoded end
+    return nil
+end
+
+local function httpPost(url, bodyTable)
+    local body = HttpService:JSONEncode(bodyTable)
+    local headers = {
+        ["Content-Type"] = "application/json",
+        ["Accept"] = "application/json",
+        ["Cache-Control"] = "no-cache",
+    }
+
+    for _, req in ipairs(getRequestFunctions()) do
+        local ok, res = pcall(req, {
+            Url = url, URL = url,
+            Method = "POST",
+            Headers = headers,
+            Body = body,
+        })
+        local decoded = ok and decodeResponse(res) or nil
+        if decoded and decoded.ok and type(decoded.users) == "table" then
+            return decoded
+        end
+    end
+
+    local ok, res = pcall(function()
+        return HttpService:PostAsync(url, body, Enum.HttpContentType.ApplicationJson)
+    end)
+    if ok and type(res) == "string" then
+        local ok2, decoded = pcall(HttpService.JSONDecode, HttpService, res)
+        if ok2 and type(decoded) == "table" then return decoded end
+    end
+    return nil
+end
+
+------------------------------------------------------------
+-- UI: MENSAGEM NA TELA (comando /trollar)
+------------------------------------------------------------
+local function getGuiParent()
+    if gethui then
+        local ok2, hui = pcall(gethui)
+        if ok2 and hui then return hui end
+    end
+    local okPg, pg = pcall(function() return LocalPlayer:FindFirstChildOfClass("PlayerGui") end)
+    if okPg and pg then return pg end
+    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok and cg then return cg end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local function showScreenMessage(text)
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "MeowlzMsg_" .. tostring(math.random(1e6))
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 9999
+    gui.Parent = getGuiParent()
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0.7, 0, 0, 120)
+    frame.Position = UDim2.new(0.5, 0, 0.18, 0)
+    frame.AnchorPoint = Vector2.new(0.5, 0.5)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 18, 10)
+    frame.BackgroundTransparency = 0.1
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 14)
+    corner.Parent = frame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = OUTLINE_COLOR
+    stroke.Thickness = 2
+    stroke.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(1, -20, 0, 28)
+    title.Position = UDim2.new(0, 10, 0, 8)
+    title.Font = Enum.Font.GothamBold
+    title.Text = "😺 Meowlzz Hub"
+    title.TextColor3 = OUTLINE_COLOR
+    title.TextScaled = true
+    title.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, -24, 1, -46)
+    label.Position = UDim2.new(0, 12, 0, 38)
+    label.Font = Enum.Font.GothamSemibold
+    label.Text = text
+    label.TextColor3 = FILL_COLOR
+    label.TextWrapped = true
+    label.TextScaled = true
+    label.Parent = frame
+
+    task.delay(8, function()
+        local t = TweenService:Create(frame, TweenInfo.new(0.4), { BackgroundTransparency = 1 })
+        t:Play()
+        t.Completed:Wait()
+        pcall(function() gui:Destroy() end)
+    end)
+end
+
+local function doKick(reason)
+    local msg = "😺 Meowlzz Hub\n\nMotivo: " .. tostring(reason)
+    local ok = pcall(function() LocalPlayer:Kick(msg) end)
+    if not ok then
+        pcall(function() game:Shutdown() end)
+        pcall(function()
+            game:GetService("Players").LocalPlayer:Kick(msg)
+        end)
+    end
+end
+
+local pendingAck = {}
+local doneCmds = {}
+
+local function handleCommands(cmds)
+    if type(cmds) ~= "table" then return end
+    for _, c in ipairs(cmds) do
+        if type(c) == "table" then
+            local id = c.id and tostring(c.id) or nil
+            if not (id and doneCmds[id]) then
+                if c.kind == "message" then
+                    local ok, err = pcall(showScreenMessage, tostring(c.content or ""))
+                    if ok and id then
+                        doneCmds[id] = true
+                        table.insert(pendingAck, id)
+                    elseif not ok then
+                        warn("[Meowlz] msg falhou:", err)
+                    end
+                elseif c.kind == "kick" then
+                    -- Confirma em um heartbeat antes de encerrar o cliente.
+                    if id then
+                        doneCmds[id] = true
+                        table.insert(pendingAck, id)
+                    end
+                    task.delay(2.5, function()
+                        doKick(c.content or "Sem motivo")
+                    end)
+                end
+            end
+        end
+    end
+end
+
+------------------------------------------------------------
+-- APLICAR VISUAL (tag + highlight)
+------------------------------------------------------------
+local marked = {}
+local activeIds = {}
+
+local function clearMark(player)
+    local m = marked[player]
+    if not m then return end
+    if m.highlight then pcall(function() m.highlight:Destroy() end) end
+    if m.billboard then pcall(function() m.billboard:Destroy() end) end
+    marked[player] = nil
+end
+
+local function tagTextFor(player)
+    if player == LocalPlayer then
+        return TAG_TEXT
+    end
+    return TAG_TEXT .. "\n@" .. player.Name
+end
+
+local function applyMark(player)
+    if not player or not player.Character then return end
+    local char = player.Character
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+
+    if marked[player] and marked[player].highlight
+       and marked[player].highlight.Parent == char then
+        return
+    end
+    clearMark(player)
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "MeowlzJoinerHL"
+    hl.Adornee = char
+    hl.FillColor = FILL_COLOR
+    hl.FillTransparency = 0.35
+    hl.OutlineColor = OUTLINE_COLOR
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = char
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "MeowlzJoinerTag"
+    bb.Adornee = head
+    bb.Size = UDim2.new(0, 220, 0, 56)
+    bb.StudsOffset = Vector3.new(0, 2.8, 0)
+    bb.AlwaysOnTop = true
+    bb.LightInfluence = 0
+    bb.Parent = char
+
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.Font = Enum.Font.GothamBold
+    label.Text = tagTextFor(player)
+    label.TextColor3 = FILL_COLOR
+    label.TextStrokeColor3 = Color3.fromRGB(60, 40, 0)
+    label.TextStrokeTransparency = 0.2
+    label.TextScaled = true
+    label.Parent = bb
+
+    marked[player] = { highlight = hl, billboard = bb }
+
+    if not player:GetAttribute("_MeowlzHookedV4") then
+        player:SetAttribute("_MeowlzHookedV4", true)
+        player.CharacterAdded:Connect(function()
+            task.wait(0.5)
+            if activeIds[tostring(player.UserId)] then
+                applyMark(player)
+            end
+        end)
+    end
+end
+
+------------------------------------------------------------
+-- SYNC LOOP
+------------------------------------------------------------
+local function sync()
+    local payload = {
+        token        = API_TOKEN,
+        robloxUserId = tostring(LocalPlayer.UserId),
+        username     = LocalPlayer.Name,
+        displayName  = LocalPlayer.DisplayName,
+        placeId      = tostring(game.PlaceId),
+        jobId        = tostring(game.JobId),
+        ack          = pendingAck,
+    }
+    pendingAck = {}
+
+    local res = nil
+    for _, apiUrl in ipairs(API_URLS) do
+        res = httpPost(apiUrl, payload)
+        if res and res.ok and res.users then break end
+    end
+    if not res or not res.users then return end
+
+    handleCommands(res.commands)
+
+    local latestIds = {}
+    for _, u in ipairs(res.users) do
+        local id = u.id or u.userId or u.robloxUserId
+        if id ~= nil then latestIds[tostring(id)] = true end
+    end
+    activeIds = latestIds
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if activeIds[tostring(plr.UserId)] then
+            applyMark(plr)
+        else
+            if marked[plr] then clearMark(plr) end
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if activeIds[tostring(plr.UserId)] then applyMark(plr) end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(plr) clearMark(plr) end)
+
+task.spawn(function()
+    while true do
+        local ok, err = pcall(sync)
+        if not ok then warn("[Meowlz] Falha no sync:", err) end
+        task.wait(HEARTBEAT)
+    end
+end)
+
+print("[Meowlz] Joiner v4 ativo.")
 print("[Meowlzz Finder] V5.1 loaded")
