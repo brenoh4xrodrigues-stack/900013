@@ -16,7 +16,7 @@ local LP = Players.LocalPlayer
 if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Players.LocalPlayer end
 
 -- ===== anti-spy: keep endpoints out of tables / gc-scannable objects =====
-local _a = "https://meowlzz-soft-notify.lovable.app/api/public/best?key=mz_7fQ4pR2xLb9VnKt3sYh8WcZ6dJ1uEaMg"
+local _a = "https://x.test/api/public/best?key=tok"
 local function API_URL() return _a end
 local JOINER_URL   = "https://meowlzz-hub-customizer.lovable.app/api/public/mz9k4x7q/hb"
 local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
@@ -53,39 +53,15 @@ do
         end
     end)
 
-    -- 2) gera o lixo UMA vez (nao pesa no executor)
-    local CH = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%&*()[]{}<>?/|~^+="
-    local CHN = #CH
-    local function line(n)
-        local b = table.create(n)
-        for i = 1, n do
-            local p = math.random(1, CHN)
-            b[i] = CH:sub(p, p)
-        end
-        return table.concat(b)
-    end
-    local BLOCKS = {}
-    for i = 1, 6 do
-        local rows = table.create(600)
-        for r = 1, 600 do rows[r] = line(150) end
-        BLOCKS[i] = table.concat(rows, "\n")
-    end
-
+    -- 2) apenas limpa o console periodicamente (leve, sem travar o executor)
     local function wipe()
         pcall(function() if rconsoleclear then rconsoleclear() end end)
         pcall(function() if clearconsole then clearconsole() end end)
         pcall(function() LogService:ClearOutput() end)
     end
 
-    -- 3) loop: despeja texto gigante, limpa tudo a cada 2s
     task.spawn(function()
         while true do
-            pcall(function()
-                for i = 1, 6 do
-                    print(BLOCKS[math.random(1, #BLOCKS)])
-                    task.wait(0.05)
-                end
-            end)
             task.wait(2)
             wipe()
         end
@@ -498,64 +474,192 @@ local function joinButton(parent, b, w, h)
     return j
 end
 
-local function makeCard(b)
-    local f = Instance.new("Frame")
-    f.Size = UDim2.new(1, -6, 0, 56)
-    f.BackgroundColor3 = BG2
-    f.BackgroundTransparency = 0.2
-    f.BorderSizePixel = 0
-    f.Parent = list
-    corner(f, 12) stroke(f, GOLD, 0.72)
+-- ===== 3D preview (viewport dos brainrots) =====
+    knob.BorderSizePixel = 0
+    knob.Parent = track
+    corner(knob, 5)
 
-    local accent = Instance.new("Frame")
-    accent.Size = UDim2.new(0, 3, 1, -16)
-    accent.Position = UDim2.new(0, 7, 0, 8)
-    accent.BackgroundColor3 = GOLD
-    accent.BorderSizePixel = 0
-    accent.Parent = f
-    corner(accent, 2)
+    row.MouseButton1Click:Connect(function()
+        cfg[key] = not cfg[key]
+        TweenService:Create(track, TweenInfo.new(0.15), { BackgroundColor3 = cfg[key] and GOLD or BG }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.15), {
+            Position = cfg[key] and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5),
+            BackgroundColor3 = cfg[key] and INK or GOLD,
+        }):Play()
+        task.spawn(refresh)
+    end)
+end
+toggle("good",   "BRAINROT GOOD")
+toggle("secret", "SECRET")
+toggle("og",     "OG")
 
-    local n = Instance.new("TextLabel")
-    n.BackgroundTransparency = 1
-    n.Position = UDim2.new(0, 18, 0, 7)
-    n.Size = UDim2.new(1, -80, 0, 15)
-    n.Font = Enum.Font.GothamBold
-    n.Text = tostring(b.name or "?")
-    n.TextSize = 12
-    n.TextColor3 = GOLD_SOFT
-    n.TextXAlignment = Enum.TextXAlignment.Left
-    n.TextTruncate = Enum.TextTruncate.AtEnd
-    n.Parent = f
+local secInfo = section("INFO", 62)
+local hint = Instance.new("TextLabel")
+hint.Position = UDim2.new(0, 12, 0, 26)
+hint.Size = UDim2.new(1, -24, 0, 30)
+hint.BackgroundTransparency = 1
+hint.Font = Enum.Font.Gotham
+hint.Text = "Notifications stack up to 3 (3s each) with sound + join.\nCLEAR LOGS wipes the list and the on-screen alerts."
+hint.TextSize = 9
+hint.TextWrapped = true
+hint.TextColor3 = DIM
+hint.TextXAlignment = Enum.TextXAlignment.Left
+hint.TextYAlignment = Enum.TextYAlignment.Top
+hint.Parent = secInfo
 
-    local sub = Instance.new("TextLabel")
-    sub.BackgroundTransparency = 1
-    sub.Position = UDim2.new(0, 18, 0, 23)
-    sub.Size = UDim2.new(1, -80, 0, 14)
-    sub.Font = Enum.Font.GothamMedium
-    sub.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.rarity or "?")
-    sub.TextSize = 10
-    sub.TextColor3 = TXT
-    sub.TextXAlignment = Enum.TextXAlignment.Left
-    sub.TextTruncate = Enum.TextTruncate.AtEnd
-    sub.Parent = f
+-- ===== users page (auto joiner) =====
+local usersHead = Instance.new("TextLabel")
+usersHead.Size = UDim2.new(1, 0, 0, 18)
+usersHead.BackgroundTransparency = 1
+usersHead.Font = Enum.Font.GothamBold
+usersHead.Text = "JOINER USERS ONLINE"
+usersHead.TextSize = 9
+usersHead.TextColor3 = GOLD
+usersHead.TextXAlignment = Enum.TextXAlignment.Left
+usersHead.Parent = pUsers
 
-    local meta = Instance.new("TextLabel")
-    meta.BackgroundTransparency = 1
-    meta.Position = UDim2.new(0, 18, 0, 37)
-    meta.Size = UDim2.new(1, -80, 0, 13)
-    meta.Font = Enum.Font.Gotham
-    meta.Text = (b.traits and b.traits ~= "" and b.traits or "No traits") .. "  •  " .. ago(b.received_at)
-    meta.TextSize = 9
-    meta.TextColor3 = DIM
-    meta.TextXAlignment = Enum.TextXAlignment.Left
-    meta.TextTruncate = Enum.TextTruncate.AtEnd
-    meta.Parent = f
+local usersList = Instance.new("ScrollingFrame")
+usersList.Position = UDim2.new(0, 0, 0, 24)
+usersList.Size = UDim2.new(1, 0, 1, -24)
+usersList.BackgroundTransparency = 1
+usersList.BorderSizePixel = 0
+usersList.ScrollBarThickness = 3
+usersList.ScrollBarImageColor3 = GOLD
+usersList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+usersList.CanvasSize = UDim2.new(0, 0, 0, 0)
+usersList.Parent = pUsers
+local uLayout = Instance.new("UIListLayout")
+uLayout.Padding = UDim.new(0, 6)
+uLayout.Parent = usersList
 
-    joinButton(f, b, 52, 24)
-    return f
+local function renderUsers(users)
+    for _, c in ipairs(usersList:GetChildren()) do
+        if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+    end
+    local count = 0
+    for id, info in pairs(users) do
+        count = count + 1
+        local f = Instance.new("Frame")
+        f.Size = UDim2.new(1, -6, 0, 44)
+        f.BackgroundColor3 = BG2
+        f.BackgroundTransparency = 0.2
+        f.BorderSizePixel = 0
+        f.Parent = usersList
+        corner(f, 12) stroke(f, GOLD, 0.72)
+
+        local img = Instance.new("ImageLabel")
+        img.Size = UDim2.new(0, 32, 0, 32)
+        img.Position = UDim2.new(0, 7, 0, 6)
+        img.BackgroundColor3 = BG3
+        img.BorderSizePixel = 0
+        img.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(id) .. "&w=60&h=60"
+        img.Parent = f
+        corner(img, 16) stroke(img, GOLD, 0.5)
+
+        local nm = Instance.new("TextLabel")
+        nm.BackgroundTransparency = 1
+        nm.Position = UDim2.new(0, 47, 0, 6)
+        nm.Size = UDim2.new(1, -56, 0, 16)
+        nm.Font = Enum.Font.GothamBold
+        nm.Text = tostring(info.display or info.name)
+        nm.TextSize = 11
+        nm.TextColor3 = GOLD_SOFT
+        nm.TextXAlignment = Enum.TextXAlignment.Left
+        nm.TextTruncate = Enum.TextTruncate.AtEnd
+        nm.Parent = f
+
+        local un = Instance.new("TextLabel")
+        un.BackgroundTransparency = 1
+        un.Position = UDim2.new(0, 47, 0, 22)
+        un.Size = UDim2.new(1, -56, 0, 14)
+        un.Font = Enum.Font.Gotham
+        un.Text = "@" .. tostring(info.name)
+        un.TextSize = 9
+        un.TextColor3 = DIM
+        un.TextXAlignment = Enum.TextXAlignment.Left
+        un.TextTruncate = Enum.TextTruncate.AtEnd
+        un.Parent = f
+    end
+    usersHead.Text = "JOINER USERS ONLINE  (" .. tostring(count) .. ")"
+    if count == 0 then
+        local e = Instance.new("TextLabel")
+        e.Size = UDim2.new(1, -6, 0, 36)
+        e.BackgroundTransparency = 1
+        e.Font = Enum.Font.Gotham
+        e.Text = "No joiner users online"
+        e.TextSize = 10
+        e.TextColor3 = DIM
+        e.Parent = usersList
+    end
 end
 
--- ===== notifications (max 3, 3s, sound) =====
+-- tag + highlight
+local marked, activeUsers = {}, {}
+local TAG_TEXT = "Meowlzz Joiner user"
+
+local function clearMark(plr)
+    local m = marked[plr]
+    if not m then return end
+    pcall(function() m.hl:Destroy() end)
+    pcall(function() m.bb:Destroy() end)
+    marked[plr] = nil
+end
+
+local function applyMark(plr, info)
+    local char = plr and plr.Character
+    local head = char and char:FindFirstChild("Head")
+    if not head then return end
+    local text = (plr == LP) and TAG_TEXT or (TAG_TEXT .. "\n@" .. tostring(info.name))
+    local m = marked[plr]
+    if m and m.hl.Parent == char then
+        if m.lbl.Text ~= text then m.lbl.Text = text end
+        return
+    end
+    clearMark(plr)
+
+    local hl = Instance.new("Highlight")
+    hl.Adornee = char
+    hl.FillColor = GOLD_SOFT
+    hl.FillTransparency = 0.4
+    hl.OutlineColor = GOLD
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = char
+
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee = head
+    bb.Size = UDim2.new(0, 220, 0, 54)
+    bb.StudsOffset = Vector3.new(0, 2.8, 0)
+    bb.AlwaysOnTop = true
+    bb.Parent = char
+
+    local lb = Instance.new("TextLabel")
+    lb.BackgroundTransparency = 1
+    lb.Size = UDim2.new(1, 0, 1, 0)
+    lb.Font = Enum.Font.GothamBold
+    lb.Text = text
+    lb.TextColor3 = GOLD_SOFT
+    lb.TextStrokeColor3 = Color3.fromRGB(60, 40, 0)
+    lb.TextStrokeTransparency = 0.25
+    lb.TextScaled = true
+    lb.Parent = bb
+
+    marked[plr] = { hl = hl, bb = bb, lbl = lb }
+end
+
+local function joinerSync()
+    local res = httpPostJSON(JOINER_URL, {
+        token = JOINER_TOKEN,
+        robloxUserId = tostring(LP.UserId),
+        username = LP.Name,
+        displayName = LP.DisplayName,
+        placeId = tostring(game.PlaceId),
+        jobId = tostring(game.JobId),
+    })
+    if not res or type(res.users) ~= "table" then return end
+    local latest = {}
+    for _, u in ipairs(res.users) do
+        local id = u.id or u.userId or u.robloxUserId
+        if id then
             latest[tostring(id)] = { name = u.name or u.username or "?", display = u.display or u.displayName or u.name or "?" }
         end
     end
