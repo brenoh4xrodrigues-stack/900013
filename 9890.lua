@@ -16,7 +16,7 @@ local LP = Players.LocalPlayer
 if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Players.LocalPlayer end
 
 -- ===== anti-spy: keep endpoints out of tables / gc-scannable objects =====
-local _a = "https://meowlzz-soft-notify.lovable.app/api/public/best?key=mz_7fQ4pR2xLb9VnKt3sYh8WcZ6dJ1uEaMg"
+local _a = "https://meowlzz-soft-notify-production.up.railway.app/api/public/best?key=Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
 local function API_URL() return _a end
 local JOINER_URL   = "https://meowlzz-hub-customizer.lovable.app/api/public/mz9k4x7q/hb"
 local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
