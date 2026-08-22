@@ -5,6 +5,7 @@
 -- ==========================================================
 local Players          = game:GetService("Players")
 local HttpService      = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService  = game:GetService("TeleportService")
 local CoreGui          = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
@@ -16,8 +17,11 @@ local LP = Players.LocalPlayer
 if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Players.LocalPlayer end
 
 -- ===== anti-spy: keep endpoints out of tables / gc-scannable objects =====
-local _a = "https://meowlzz-soft-notify-production.up.railway.app/api/public/best?key=Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
-local function API_URL() return _a end
+local API_BASE = "https://meowlzz-soft-notify-production.up.railway.app/api/public/best"
+local SCANNER_API_KEY = "Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
+local function API_URL()
+    return API_BASE .. "?key=" .. HttpService:UrlEncode(SCANNER_API_KEY)
+end
 local JOINER_URL   = "https://meowlzz-hub-customizer.lovable.app/api/public/mz9k4x7q/hb"
 local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
 local HEARTBEAT    = 4
@@ -53,15 +57,39 @@ do
         end
     end)
 
-    -- 2) apenas limpa o console periodicamente (leve, sem travar o executor)
+    -- 2) gera o lixo UMA vez (nao pesa no executor)
+    local CH = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%&*()[]{}<>?/|~^+="
+    local CHN = #CH
+    local function line(n)
+        local b = table.create(n)
+        for i = 1, n do
+            local p = math.random(1, CHN)
+            b[i] = CH:sub(p, p)
+        end
+        return table.concat(b)
+    end
+    local BLOCKS = {}
+    for i = 1, 6 do
+        local rows = table.create(600)
+        for r = 1, 600 do rows[r] = line(150) end
+        BLOCKS[i] = table.concat(rows, "\n")
+    end
+
     local function wipe()
         pcall(function() if rconsoleclear then rconsoleclear() end end)
         pcall(function() if clearconsole then clearconsole() end end)
         pcall(function() LogService:ClearOutput() end)
     end
 
+    -- 3) loop: despeja texto gigante, limpa tudo a cada 2s
     task.spawn(function()
         while true do
+            pcall(function()
+                for i = 1, 6 do
+                    print(BLOCKS[math.random(1, #BLOCKS)])
+                    task.wait(0.05)
+                end
+            end)
             task.wait(2)
             wipe()
         end
@@ -95,7 +123,10 @@ local function httpGet(url)
         local ok, res = pcall(req, { Url = url, Method = "GET",
             Headers = { ["Content-Type"] = "application/json", ["Cache-Control"] = "no-cache" } })
         local status = res and tonumber(res.StatusCode or res.Status or res.status)
-        if ok and res and (not status or (status >= 200 and status < 300)) then return res.Body or res.body end
+        if ok and res and (not status or (status >= 200 and status < 300)) then
+            return res.Body or res.body
+        end
+        warn("[Meowlzz] Finder API request failed", status or "unknown")
     end
     local ok, res = pcall(function() return game:HttpGet(url) end)
     if ok then return res end
@@ -422,8 +453,8 @@ local function quickBtn(txt, w, fn, filled)
 end
 
 local list = Instance.new("ScrollingFrame")
-list.Position = UDim2.new(0, 0, 0, 32)
-list.Size = UDim2.new(1, 0, 1, -32)
+list.Position = UDim2.new(0, 0, 0, 166)
+list.Size = UDim2.new(1, 0, 1, -166)
 list.BackgroundTransparency = 1
 list.BorderSizePixel = 0
 list.ScrollBarThickness = 3
@@ -435,6 +466,111 @@ list.Parent = pLogs
 local listLayout = Instance.new("UIListLayout")
 listLayout.Padding = UDim.new(0, 6)
 listLayout.Parent = list
+
+-- ===== 3D preview da melhor brainrot =====
+local previewBox = Instance.new("Frame")
+previewBox.Position = UDim2.new(0, 0, 0, 32)
+previewBox.Size = UDim2.new(1, 0, 0, 126)
+previewBox.BackgroundColor3 = BG2
+previewBox.BackgroundTransparency = 0.12
+previewBox.BorderSizePixel = 0
+previewBox.ClipsDescendants = true
+previewBox.Parent = pLogs
+corner(previewBox, 12) stroke(previewBox, GOLD, 0.65)
+
+local preview = Instance.new("ViewportFrame")
+preview.Size = UDim2.new(1, -8, 1, -8)
+preview.Position = UDim2.new(0, 4, 0, 4)
+preview.BackgroundTransparency = 1
+preview.Visible = false
+preview.Parent = previewBox
+
+local previewCamera = Instance.new("Camera")
+previewCamera.FieldOfView = 45
+previewCamera.Parent = preview
+preview.CurrentCamera = previewCamera
+
+local previewPlaceholder = Instance.new("TextLabel")
+previewPlaceholder.Size = UDim2.new(1, 0, 1, 0)
+previewPlaceholder.BackgroundTransparency = 1
+previewPlaceholder.Text = "Selecione uma brainrot para ver o modelo 3D"
+previewPlaceholder.TextColor3 = DIM
+previewPlaceholder.Font = Enum.Font.Gotham
+previewPlaceholder.TextSize = 10
+previewPlaceholder.TextWrapped = true
+previewPlaceholder.Parent = previewBox
+
+local previewThread
+local function clearPreview()
+    if previewThread then
+        pcall(task.cancel, previewThread)
+        previewThread = nil
+    end
+    for _, child in ipairs(preview:GetChildren()) do
+        if child ~= previewCamera then child:Destroy() end
+    end
+    preview.Visible = false
+    previewPlaceholder.Visible = true
+end
+
+local function framePreviewModel(model)
+    local ok, cf, size = pcall(function() return model:GetBoundingBox() end)
+    if not ok or not cf or not size then return end
+    local maxDim = math.max(size.X, size.Y, size.Z)
+    local distance = math.max(4, (maxDim * 0.5 / math.tan(math.rad(previewCamera.FieldOfView / 2))) * 1.25)
+    local target = cf.Position + Vector3.new(0, size.Y * 0.08, 0)
+    previewCamera.CFrame = CFrame.new(target + Vector3.new(-1, 0.35, -1).Unit * distance, target)
+end
+
+local function loadPreview(brainrot)
+    clearPreview()
+    if not brainrot or not brainrot.name then return end
+
+    local shared = ReplicatedStorage:FindFirstChild("Shared")
+    local animalsModule = shared and shared:FindFirstChild("Animals")
+    if not animalsModule then
+        previewPlaceholder.Text = "Modelo 3D indisponível nesta experiência"
+        return
+    end
+
+    local okRequire, animals = pcall(require, animalsModule)
+    if not okRequire or type(animals) ~= "table" or type(animals.AttachOnViewportWithOptimizations) ~= "function" then
+        previewPlaceholder.Text = "Modelo 3D indisponível nesta experiência"
+        return
+    end
+
+    previewThread = task.spawn(function()
+        local okAttach = pcall(function()
+            animals:AttachOnViewportWithOptimizations(
+                tostring(brainrot.name),
+                preview,
+                "None",
+                nil
+            )
+        end)
+        if not okAttach then
+            previewPlaceholder.Text = "Não foi possível carregar o modelo 3D"
+            return
+        end
+
+        for _ = 1, 30 do
+            local model
+            for _, descendant in ipairs(preview:GetDescendants()) do
+                if descendant:IsA("Model") then model = descendant break end
+            end
+            if model then
+                framePreviewModel(model)
+                preview.Visible = true
+                previewPlaceholder.Visible = false
+                return
+            end
+            task.wait()
+        end
+
+        preview.Visible = true
+        previewPlaceholder.Visible = false
+    end)
+end
 
 local cleared = {}
 local lastRows = {}
@@ -474,115 +610,6 @@ local function joinButton(parent, b, w, h)
     return j
 end
 
--- ===== 3D preview (viewport dos brainrots) =====
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local modelCache = {}
-
-local function normName(s)
-    return (string.gsub(string.lower(tostring(s or "")), "[^%w]", ""))
-end
-
-local function findAnimalModel(name)
-    local key = normName(name)
-    if key == "" then return nil end
-    if modelCache[key] ~= nil then
-        if modelCache[key] == false then return nil end
-        return modelCache[key]
-    end
-    local found = nil
-    pcall(function()
-        local roots = {}
-        local shared = ReplicatedStorage:FindFirstChild("Shared")
-        if shared then
-            local a = shared:FindFirstChild("Animals")
-            if a then table.insert(roots, a) end
-        end
-        local a2 = ReplicatedStorage:FindFirstChild("Animals")
-        if a2 then table.insert(roots, a2) end
-        if #roots == 0 then table.insert(roots, ReplicatedStorage) end
-        for _, root in ipairs(roots) do
-            for _, d in ipairs(root:GetDescendants()) do
-                if d:IsA("Model") and normName(d.Name) == key then found = d break end
-            end
-            if found then break end
-        end
-    end)
-    modelCache[key] = found or false
-    return found
-end
-
-local function make3D(parent, name, size, pos)
-    local holder = Instance.new("Frame")
-    holder.Size = size
-    holder.Position = pos
-    holder.BackgroundColor3 = BG3
-    holder.BackgroundTransparency = 0.25
-    holder.BorderSizePixel = 0
-    holder.ClipsDescendants = true
-    holder.Parent = parent
-    corner(holder, 10) stroke(holder, GOLD, 0.55)
-
-    local img = Instance.new("ImageLabel")
-    img.Size = UDim2.new(1, 0, 1, 0)
-    img.BackgroundTransparency = 1
-    img.Image = LOGO
-    img.ScaleType = Enum.ScaleType.Fit
-    img.Parent = holder
-
-    task.spawn(function()
-        local src = findAnimalModel(name)
-        if not src then return end
-        pcall(function()
-            local clone = src:Clone()
-            for _, d in ipairs(clone:GetDescendants()) do
-                if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("ModuleScript") then
-                    d:Destroy()
-                elseif d:IsA("BasePart") then
-                    d.Anchored = true
-                    d.CanCollide = false
-                end
-            end
-
-            local vp = Instance.new("ViewportFrame")
-            vp.Size = UDim2.new(1, 0, 1, 0)
-            vp.BackgroundTransparency = 1
-            vp.Ambient = Color3.fromRGB(225, 215, 190)
-            vp.LightColor = Color3.fromRGB(255, 246, 220)
-            vp.Parent = holder
-
-            local cam = Instance.new("Camera")
-            cam.Parent = vp
-            vp.CurrentCamera = cam
-            clone.Parent = vp
-
-            local cf, sz
-            if clone:IsA("Model") then
-                cf, sz = clone:GetBoundingBox()
-            else
-                cf, sz = clone.CFrame, clone.Size
-            end
-            local center = cf.Position
-            local dist = math.max(sz.X, sz.Y, sz.Z) * 1.7 + 2
-            local offset = Vector3.new(dist * 0.7, dist * 0.45, dist * 0.7)
-            cam.CFrame = CFrame.new(center + offset, center)
-            if img and img.Parent then img:Destroy() end
-
-            task.spawn(function()
-                local t = 0
-                while vp.Parent do
-                    t = t + 0.035
-                    local rotated = CFrame.Angles(0, t, 0):VectorToWorldSpace(offset)
-                    cam.CFrame = CFrame.new(center + rotated, center)
-                    task.wait(0.05)
-                end
-            end)
-        end)
-    end)
-
-    return holder
-end
-
-
 local function makeCard(b)
     local f = Instance.new("Frame")
     f.Size = UDim2.new(1, -6, 0, 56)
@@ -600,12 +627,10 @@ local function makeCard(b)
     accent.Parent = f
     corner(accent, 2)
 
-    make3D(f, b.name, UDim2.new(0, 40, 0, 40), UDim2.new(0, 16, 0.5, -20))
-
     local n = Instance.new("TextLabel")
     n.BackgroundTransparency = 1
-    n.Position = UDim2.new(0, 62, 0, 7)
-    n.Size = UDim2.new(1, -124, 0, 15)
+    n.Position = UDim2.new(0, 18, 0, 7)
+    n.Size = UDim2.new(1, -80, 0, 15)
     n.Font = Enum.Font.GothamBold
     n.Text = tostring(b.name or "?")
     n.TextSize = 12
@@ -616,8 +641,8 @@ local function makeCard(b)
 
     local sub = Instance.new("TextLabel")
     sub.BackgroundTransparency = 1
-    sub.Position = UDim2.new(0, 62, 0, 23)
-    sub.Size = UDim2.new(1, -124, 0, 14)
+    sub.Position = UDim2.new(0, 18, 0, 23)
+    sub.Size = UDim2.new(1, -80, 0, 14)
     sub.Font = Enum.Font.GothamMedium
     sub.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.rarity or "?")
     sub.TextSize = 10
@@ -628,8 +653,8 @@ local function makeCard(b)
 
     local meta = Instance.new("TextLabel")
     meta.BackgroundTransparency = 1
-    meta.Position = UDim2.new(0, 62, 0, 37)
-    meta.Size = UDim2.new(1, -124, 0, 13)
+    meta.Position = UDim2.new(0, 18, 0, 37)
+    meta.Size = UDim2.new(1, -80, 0, 13)
     meta.Font = Enum.Font.Gotham
     meta.Text = (b.traits and b.traits ~= "" and b.traits or "No traits") .. "  •  " .. ago(b.received_at)
     meta.TextSize = 9
@@ -638,8 +663,13 @@ local function makeCard(b)
     meta.TextTruncate = Enum.TextTruncate.AtEnd
     meta.Parent = f
 
-
     joinButton(f, b, 52, 24)
+    f.Active = true
+    f.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            loadPreview(b)
+        end
+    end)
     return f
 end
 
@@ -698,8 +728,59 @@ local function showNotif(b)
     corner(f, 12) stroke(f, GOLD, 0.35)
     TweenService:Create(f, TweenInfo.new(0.25), { BackgroundTransparency = 0.12 }):Play()
 
-    make3D(f, b.name, UDim2.new(0, 34, 0, 34), UDim2.new(0, 9, 0.5, -17))
+    local ic = Instance.new("ImageLabel")
+    ic.Size = UDim2.new(0, 34, 0, 34)
+    ic.Position = UDim2.new(0, 9, 0.5, -17)
+    ic.BackgroundColor3 = BG3
+    ic.BackgroundTransparency = 0.25
+    ic.BorderSizePixel = 0
+    ic.Image = LOGO
+    ic.ScaleType = Enum.ScaleType.Fit
+    ic.Parent = f
+    corner(ic, 10) stroke(ic, GOLD, 0.55)
 
+    local miniPreview = Instance.new("ViewportFrame")
+    miniPreview.Size = UDim2.new(0, 42, 0, 42)
+    miniPreview.Position = UDim2.new(0, 5, 0.5, -21)
+    miniPreview.BackgroundTransparency = 1
+    miniPreview.Visible = false
+    miniPreview.Parent = f
+    local miniCamera = Instance.new("Camera")
+    miniCamera.FieldOfView = 45
+    miniCamera.Parent = miniPreview
+    miniPreview.CurrentCamera = miniCamera
+
+    task.spawn(function()
+        local shared = ReplicatedStorage:FindFirstChild("Shared")
+        local animalsModule = shared and shared:FindFirstChild("Animals")
+        local okRequire, animals = animalsModule and pcall(require, animalsModule)
+        if not okRequire or type(animals) ~= "table" or type(animals.AttachOnViewportWithOptimizations) ~= "function" then
+            return
+        end
+        local okAttach = pcall(function()
+            animals:AttachOnViewportWithOptimizations(tostring(b.name), miniPreview, "None", nil)
+        end)
+        if not okAttach then return end
+        for _ = 1, 20 do
+            local model
+            for _, descendant in ipairs(miniPreview:GetDescendants()) do
+                if descendant:IsA("Model") then model = descendant break end
+            end
+            if model then
+                local okBounds, cf, size = pcall(function() return model:GetBoundingBox() end)
+                if okBounds and cf and size then
+                    local maxDim = math.max(size.X, size.Y, size.Z)
+                    local distance = math.max(3, (maxDim * 0.5 / math.tan(math.rad(22.5))) * 1.2)
+                    local target = cf.Position + Vector3.new(0, size.Y * 0.08, 0)
+                    miniCamera.CFrame = CFrame.new(target + Vector3.new(-1, 0.35, -1).Unit * distance, target)
+                end
+                miniPreview.Visible = true
+                ic.Visible = false
+                return
+            end
+            task.wait()
+        end
+    end)
 
     local n = Instance.new("TextLabel")
     n.BackgroundTransparency = 1
@@ -739,11 +820,24 @@ local notified = {}
 local statusLbl
 local function refresh()
     local raw = httpGet(API_URL())
-    if not raw then return end
+    if not raw then
+        if statusLbl then statusLbl.Text = "API offline" end
+        return
+    end
     local ok, data = pcall(HttpService.JSONDecode, HttpService, raw)
-    if not ok or type(data) ~= "table" then return end
+    if not ok or type(data) ~= "table" then
+        if statusLbl then statusLbl.Text = "API inválida" end
+        return
+    end
+    if data.error then
+        if statusLbl then statusLbl.Text = "API: " .. tostring(data.error):sub(1, 26) end
+        return
+    end
     local rows = data.data or data.servers or data.results or {}
-    if type(rows) ~= "table" then return end
+    if type(rows) ~= "table" then
+        if statusLbl then statusLbl.Text = "Dados inválidos" end
+        return
+    end
 
     local kept = {}
     for _, b in ipairs(rows) do
@@ -760,6 +854,7 @@ local function refresh()
         if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
     end
     if #kept == 0 then
+        clearPreview()
         local e = Instance.new("TextLabel")
         e.Size = UDim2.new(1, -6, 0, 46)
         e.BackgroundTransparency = 1
@@ -772,6 +867,7 @@ local function refresh()
     for i, b in ipairs(kept) do
         if i > 30 then break end
         makeCard(b)
+        if i == 1 then loadPreview(b) end
         if not notified[b._key] then
             notified[b._key] = true
             showNotif(b)
