@@ -16,7 +16,7 @@ local LP = Players.LocalPlayer
 if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Players.LocalPlayer end
 
 -- ===== anti-spy: keep endpoints out of tables / gc-scannable objects =====
-local _a = "https://x.test/api/public/best?key=tok"
+local _a = "https://meowlzz-soft-notify-production.up.railway.app/api/public/best?key=Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
 local function API_URL() return _a end
 local JOINER_URL   = "https://meowlzz-hub-customizer.lovable.app/api/public/mz9k4x7q/hb"
 local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
@@ -475,6 +475,473 @@ local function joinButton(parent, b, w, h)
 end
 
 -- ===== 3D preview (viewport dos brainrots) =====
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local modelCache = {}
+
+local function normName(s)
+    return (string.gsub(string.lower(tostring(s or "")), "[^%w]", ""))
+end
+
+local function findAnimalModel(name)
+    local key = normName(name)
+    if key == "" then return nil end
+    if modelCache[key] ~= nil then
+        if modelCache[key] == false then return nil end
+        return modelCache[key]
+    end
+    local found = nil
+    pcall(function()
+        local roots = {}
+        local shared = ReplicatedStorage:FindFirstChild("Shared")
+        if shared then
+            local a = shared:FindFirstChild("Animals")
+            if a then table.insert(roots, a) end
+        end
+        local a2 = ReplicatedStorage:FindFirstChild("Animals")
+        if a2 then table.insert(roots, a2) end
+        if #roots == 0 then table.insert(roots, ReplicatedStorage) end
+        for _, root in ipairs(roots) do
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("Model") and normName(d.Name) == key then found = d break end
+            end
+            if found then break end
+        end
+    end)
+    modelCache[key] = found or false
+    return found
+end
+
+local function make3D(parent, name, size, pos)
+    local holder = Instance.new("Frame")
+    holder.Size = size
+    holder.Position = pos
+    holder.BackgroundColor3 = BG3
+    holder.BackgroundTransparency = 0.25
+    holder.BorderSizePixel = 0
+    holder.ClipsDescendants = true
+    holder.Parent = parent
+    corner(holder, 10) stroke(holder, GOLD, 0.55)
+
+    local img = Instance.new("ImageLabel")
+    img.Size = UDim2.new(1, 0, 1, 0)
+    img.BackgroundTransparency = 1
+    img.Image = LOGO
+    img.ScaleType = Enum.ScaleType.Fit
+    img.Parent = holder
+
+    task.spawn(function()
+        local src = findAnimalModel(name)
+        if not src then return end
+        pcall(function()
+            local clone = src:Clone()
+            for _, d in ipairs(clone:GetDescendants()) do
+                if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("ModuleScript") then
+                    d:Destroy()
+                elseif d:IsA("BasePart") then
+                    d.Anchored = true
+                    d.CanCollide = false
+                end
+            end
+
+            local vp = Instance.new("ViewportFrame")
+            vp.Size = UDim2.new(1, 0, 1, 0)
+            vp.BackgroundTransparency = 1
+            vp.Ambient = Color3.fromRGB(225, 215, 190)
+            vp.LightColor = Color3.fromRGB(255, 246, 220)
+            vp.Parent = holder
+
+            local cam = Instance.new("Camera")
+            cam.Parent = vp
+            vp.CurrentCamera = cam
+            clone.Parent = vp
+
+            local cf, sz
+            if clone:IsA("Model") then
+                cf, sz = clone:GetBoundingBox()
+            else
+                cf, sz = clone.CFrame, clone.Size
+            end
+            local center = cf.Position
+            local dist = math.max(sz.X, sz.Y, sz.Z) * 1.7 + 2
+            local offset = Vector3.new(dist * 0.7, dist * 0.45, dist * 0.7)
+            cam.CFrame = CFrame.new(center + offset, center)
+            if img and img.Parent then img:Destroy() end
+
+            task.spawn(function()
+                local t = 0
+                while vp.Parent do
+                    t = t + 0.035
+                    local rotated = CFrame.Angles(0, t, 0):VectorToWorldSpace(offset)
+                    cam.CFrame = CFrame.new(center + rotated, center)
+                    task.wait(0.05)
+                end
+            end)
+        end)
+    end)
+
+    return holder
+end
+
+
+local function makeCard(b)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, -6, 0, 56)
+    f.BackgroundColor3 = BG2
+    f.BackgroundTransparency = 0.2
+    f.BorderSizePixel = 0
+    f.Parent = list
+    corner(f, 12) stroke(f, GOLD, 0.72)
+
+    local accent = Instance.new("Frame")
+    accent.Size = UDim2.new(0, 3, 1, -16)
+    accent.Position = UDim2.new(0, 7, 0, 8)
+    accent.BackgroundColor3 = GOLD
+    accent.BorderSizePixel = 0
+    accent.Parent = f
+    corner(accent, 2)
+
+    make3D(f, b.name, UDim2.new(0, 40, 0, 40), UDim2.new(0, 16, 0.5, -20))
+
+    local n = Instance.new("TextLabel")
+    n.BackgroundTransparency = 1
+    n.Position = UDim2.new(0, 62, 0, 7)
+    n.Size = UDim2.new(1, -124, 0, 15)
+    n.Font = Enum.Font.GothamBold
+    n.Text = tostring(b.name or "?")
+    n.TextSize = 12
+    n.TextColor3 = GOLD_SOFT
+    n.TextXAlignment = Enum.TextXAlignment.Left
+    n.TextTruncate = Enum.TextTruncate.AtEnd
+    n.Parent = f
+
+    local sub = Instance.new("TextLabel")
+    sub.BackgroundTransparency = 1
+    sub.Position = UDim2.new(0, 62, 0, 23)
+    sub.Size = UDim2.new(1, -124, 0, 14)
+    sub.Font = Enum.Font.GothamMedium
+    sub.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.rarity or "?")
+    sub.TextSize = 10
+    sub.TextColor3 = TXT
+    sub.TextXAlignment = Enum.TextXAlignment.Left
+    sub.TextTruncate = Enum.TextTruncate.AtEnd
+    sub.Parent = f
+
+    local meta = Instance.new("TextLabel")
+    meta.BackgroundTransparency = 1
+    meta.Position = UDim2.new(0, 62, 0, 37)
+    meta.Size = UDim2.new(1, -124, 0, 13)
+    meta.Font = Enum.Font.Gotham
+    meta.Text = (b.traits and b.traits ~= "" and b.traits or "No traits") .. "  •  " .. ago(b.received_at)
+    meta.TextSize = 9
+    meta.TextColor3 = DIM
+    meta.TextXAlignment = Enum.TextXAlignment.Left
+    meta.TextTruncate = Enum.TextTruncate.AtEnd
+    meta.Parent = f
+
+
+    joinButton(f, b, 52, 24)
+    return f
+end
+
+-- ===== notifications (max 3, 3s, sound) =====
+local notifHolder = Instance.new("Frame")
+notifHolder.AnchorPoint = Vector2.new(0.5, 0)
+notifHolder.Position = UDim2.new(0.5, 0, 0, 10)
+notifHolder.Size = UDim2.new(0, 320, 0, 190)
+notifHolder.BackgroundTransparency = 1
+notifHolder.Parent = gui
+local nLayout = Instance.new("UIListLayout")
+nLayout.Padding = UDim.new(0, 6)
+nLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+nLayout.Parent = notifHolder
+
+local activeNotifs = {}
+
+local function playPing()
+    local s = Instance.new("Sound")
+    s.SoundId = "rbxassetid://125621644257669"
+    s.Volume = 2
+    s.Parent = SoundService
+    s:Play()
+    Debris:AddItem(s, 5)
+end
+
+local function removeNotif(entry)
+    for i, e in ipairs(activeNotifs) do
+        if e == entry then table.remove(activeNotifs, i) break end
+    end
+    if entry.frame then
+        TweenService:Create(entry.frame, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+        task.delay(0.28, function() pcall(function() entry.frame:Destroy() end) end)
+    end
+end
+
+local function showNotif(b)
+    for _, e in ipairs(activeNotifs) do
+        if e.key == (tostring(b.name) .. tostring(b.server_id)) then return end
+    end
+    if #activeNotifs >= 3 then
+        local worst, _idx = nil, nil
+        for i, e in ipairs(activeNotifs) do
+            if not worst or e.val < worst.val then worst, _idx = e, i end
+        end
+        if worst and worst.val >= (tonumber(b.gen_val) or 0) then return end
+        if worst then removeNotif(worst) end
+    end
+
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, 0, 0, 56)
+    f.BackgroundColor3 = BG2
+    f.BackgroundTransparency = 1
+    f.BorderSizePixel = 0
+    f.Parent = notifHolder
+    corner(f, 12) stroke(f, GOLD, 0.35)
+    TweenService:Create(f, TweenInfo.new(0.25), { BackgroundTransparency = 0.12 }):Play()
+
+    make3D(f, b.name, UDim2.new(0, 34, 0, 34), UDim2.new(0, 9, 0.5, -17))
+
+
+    local n = Instance.new("TextLabel")
+    n.BackgroundTransparency = 1
+    n.Position = UDim2.new(0, 51, 0, 7)
+    n.Size = UDim2.new(1, -115, 0, 15)
+    n.Font = Enum.Font.GothamBold
+    n.Text = tostring(b.name or "?")
+    n.TextSize = 12
+    n.TextColor3 = GOLD_SOFT
+    n.TextXAlignment = Enum.TextXAlignment.Left
+    n.TextTruncate = Enum.TextTruncate.AtEnd
+    n.Parent = f
+
+    local d = Instance.new("TextLabel")
+    d.BackgroundTransparency = 1
+    d.Position = UDim2.new(0, 51, 0, 23)
+    d.Size = UDim2.new(1, -115, 0, 26)
+    d.Font = Enum.Font.Gotham
+    d.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.mutation or "None") .. "\n" ..
+             (b.traits and b.traits ~= "" and b.traits or "No traits")
+    d.TextSize = 9
+    d.TextColor3 = TXT
+    d.TextXAlignment = Enum.TextXAlignment.Left
+    d.TextYAlignment = Enum.TextYAlignment.Top
+    d.Parent = f
+
+    joinButton(f, b, 52, 24)
+
+    local entry = { frame = f, val = tonumber(b.gen_val) or 0, key = tostring(b.name) .. tostring(b.server_id) }
+    table.insert(activeNotifs, entry)
+    pcall(playPing)
+    task.delay(3, function() removeNotif(entry) end)
+end
+
+-- ===== refresh =====
+local notified = {}
+local statusLbl
+local function refresh()
+    local raw = httpGet(API_URL())
+    if not raw then return end
+    local ok, data = pcall(HttpService.JSONDecode, HttpService, raw)
+    if not ok or type(data) ~= "table" then return end
+    local rows = data.data or data.servers or data.results or {}
+    if type(rows) ~= "table" then return end
+
+    local kept = {}
+    for _, b in ipairs(rows) do
+        local key = tostring(b.name) .. "|" .. tostring(b.server_id) .. "|" .. tostring(b.gen_val)
+        if passes(b) and not cleared[key] then
+            b._key = key
+            table.insert(kept, b)
+        end
+    end
+    table.sort(kept, function(x, y) return (tonumber(x.gen_val) or 0) > (tonumber(y.gen_val) or 0) end)
+
+    lastRows = kept
+    for _, c in ipairs(list:GetChildren()) do
+        if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+    end
+    if #kept == 0 then
+        local e = Instance.new("TextLabel")
+        e.Size = UDim2.new(1, -6, 0, 46)
+        e.BackgroundTransparency = 1
+        e.Font = Enum.Font.Gotham
+        e.Text = "No logs yet"
+        e.TextSize = 10
+        e.TextColor3 = DIM
+        e.Parent = list
+    end
+    for i, b in ipairs(kept) do
+        if i > 30 then break end
+        makeCard(b)
+        if not notified[b._key] then
+            notified[b._key] = true
+            showNotif(b)
+        end
+    end
+    if statusLbl then statusLbl.Text = tostring(#kept) .. " logs" end
+end
+
+quickBtn("FORCE REFRESH", 92, function() task.spawn(refresh) end, true)
+quickBtn("CLEAR LOGS", 76, function()
+    for _, b in ipairs(lastRows) do cleared[b._key] = true end
+    for _, e in ipairs({ table.unpack(activeNotifs) }) do removeNotif(e) end
+    for _, c in ipairs(list:GetChildren()) do
+        if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+    end
+    if statusLbl then statusLbl.Text = "0 logs" end
+end)
+quickBtn("TOP", 40, function() list.CanvasPosition = Vector2.new(0, 0) end)
+
+statusLbl = Instance.new("TextLabel")
+statusLbl.Size = UDim2.new(0, 60, 1, 0)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Font = Enum.Font.Gotham
+statusLbl.Text = "0 logs"
+statusLbl.TextSize = 9
+statusLbl.TextColor3 = DIM
+statusLbl.TextXAlignment = Enum.TextXAlignment.Right
+statusLbl.Parent = quickBar
+
+-- ===== config page =====
+local cfgScroll = Instance.new("ScrollingFrame")
+cfgScroll.Size = UDim2.new(1, 0, 1, 0)
+cfgScroll.BackgroundTransparency = 1
+cfgScroll.BorderSizePixel = 0
+cfgScroll.ScrollBarThickness = 3
+cfgScroll.ScrollBarImageColor3 = GOLD
+cfgScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+cfgScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+cfgScroll.Parent = pConfig
+local cfgLayout = Instance.new("UIListLayout")
+cfgLayout.Padding = UDim.new(0, 8)
+cfgLayout.Parent = cfgScroll
+
+local function section(titleTxt, h)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, -6, 0, h)
+    card.BackgroundColor3 = BG2
+    card.BackgroundTransparency = 0.25
+    card.BorderSizePixel = 0
+    card.Parent = cfgScroll
+    corner(card, 12) stroke(card, GOLD, 0.72)
+
+    local t = Instance.new("TextLabel")
+    t.BackgroundTransparency = 1
+    t.Position = UDim2.new(0, 12, 0, 8)
+    t.Size = UDim2.new(1, -20, 0, 13)
+    t.Font = Enum.Font.GothamBold
+    t.Text = titleTxt
+    t.TextSize = 9
+    t.TextColor3 = GOLD
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.Parent = card
+    return card
+end
+
+-- min gen
+local secGen = section("MINIMUM GENERATION", 66)
+
+local box = Instance.new("TextBox")
+box.Position = UDim2.new(0, 12, 0, 28)
+box.Size = UDim2.new(0, 92, 0, 28)
+box.BackgroundColor3 = BG3
+box.BackgroundTransparency = 0.15
+box.BorderSizePixel = 0
+box.Font = Enum.Font.GothamMedium
+box.Text = "1"
+box.PlaceholderText = "1"
+box.PlaceholderColor3 = DIM
+box.TextSize = 11
+box.TextColor3 = TXT
+box.ClearTextOnFocus = false
+box.Parent = secGen
+corner(box, 9) stroke(box, GOLD, 0.65)
+box.FocusLost:Connect(function()
+    cfg.minVal = tonumber(box.Text) or 0
+    box.Text = tostring(cfg.minVal)
+    task.spawn(refresh)
+end)
+
+local unitHolder = Instance.new("Frame")
+unitHolder.Position = UDim2.new(0, 112, 0, 28)
+unitHolder.Size = UDim2.new(1, -124, 0, 28)
+unitHolder.BackgroundTransparency = 1
+unitHolder.Parent = secGen
+local uL = Instance.new("UIListLayout")
+uL.FillDirection = Enum.FillDirection.Horizontal
+uL.Padding = UDim.new(0, 6)
+uL.Parent = unitHolder
+
+local unitBtns = {}
+local function paintUnit(b, on)
+    b.BackgroundColor3 = on and GOLD or BG3
+    b.BackgroundTransparency = on and 0 or 0.15
+    b.TextColor3 = on and INK or GOLD
+end
+for _, u in ipairs({ "K", "M", "B" }) do
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, 38, 1, 0)
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.Font = Enum.Font.GothamBold
+    b.Text = u
+    b.TextSize = 11
+    b.Parent = unitHolder
+    corner(b, 9) stroke(b, GOLD, 0.65)
+    paintUnit(b, u == cfg.unit)
+    unitBtns[u] = b
+    b.MouseButton1Click:Connect(function()
+        cfg.unit = u
+        for k, bb in pairs(unitBtns) do paintUnit(bb, k == u) end
+        task.spawn(refresh)
+    end)
+end
+
+-- rarities
+local secRar = section("RARITY FILTER", 104)
+local rarHolder = Instance.new("Frame")
+rarHolder.Position = UDim2.new(0, 12, 0, 28)
+rarHolder.Size = UDim2.new(1, -24, 0, 66)
+rarHolder.BackgroundTransparency = 1
+rarHolder.Parent = secRar
+local rL = Instance.new("UIListLayout")
+rL.Padding = UDim.new(0, 6)
+rL.Parent = rarHolder
+
+local function toggle(key, label)
+    local row = Instance.new("TextButton")
+    row.Size = UDim2.new(1, 0, 0, 18)
+    row.BackgroundColor3 = BG3
+    row.BackgroundTransparency = 0.15
+    row.BorderSizePixel = 0
+    row.AutoButtonColor = false
+    row.Text = ""
+    row.Parent = rarHolder
+    corner(row, 9) stroke(row, GOLD, 0.7)
+
+    local lb = Instance.new("TextLabel")
+    lb.BackgroundTransparency = 1
+    lb.Position = UDim2.new(0, 12, 0, 0)
+    lb.Size = UDim2.new(1, -60, 1, 0)
+    lb.Font = Enum.Font.GothamBold
+    lb.Text = label
+    lb.TextSize = 9
+    lb.TextColor3 = GOLD_SOFT
+    lb.TextXAlignment = Enum.TextXAlignment.Left
+    lb.Parent = row
+
+    local track = Instance.new("Frame")
+    track.AnchorPoint = Vector2.new(1, 0.5)
+    track.Position = UDim2.new(1, -10, 0.5, 0)
+    track.Size = UDim2.new(0, 32, 0, 14)
+    track.BackgroundColor3 = cfg[key] and GOLD or BG
+    track.BorderSizePixel = 0
+    track.Parent = row
+    corner(track, 7) stroke(track, GOLD, 0.6)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 10, 0, 10)
+    knob.Position = cfg[key] and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5)
+    knob.BackgroundColor3 = cfg[key] and INK or GOLD
     knob.BorderSizePixel = 0
     knob.Parent = track
     corner(knob, 5)
