@@ -1,8 +1,3 @@
---!nocheck
--- ==========================================================
--- MEOWLZZ FINDER V5 - soft gold glass UI, side rail, rounded
--- same features as V4: auto joiner, refresh, clear logs, notifs
--- ==========================================================
 local Players          = game:GetService("Players")
 local HttpService      = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -16,7 +11,6 @@ local Debris           = game:GetService("Debris")
 local LP = Players.LocalPlayer
 if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Players.LocalPlayer end
 
--- ===== anti-spy: keep endpoints out of tables / gc-scannable objects =====
 local API_BASE = "https://meowlzz-soft-notify-production.up.railway.app/api/public/best"
 local SCANNER_API_KEY = "Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
 local function API_URL()
@@ -26,9 +20,6 @@ local JOINER_URL   = "https://meowlzz-hub-customizer.lovable.app/api/public/mz9k
 local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
 local HEARTBEAT    = 4
 
--- ==========================================================
--- CONSOLE LOCK + FLOOD (anti-spy / anti-log-stealer)
--- ==========================================================
 do
     local StarterGui  = game:GetService("StarterGui")
     local CAS         = game:GetService("ContextActionService")
@@ -126,7 +117,7 @@ local function httpGet(url)
         if ok and res and (not status or (status >= 200 and status < 300)) then
             return res.Body or res.body
         end
-        warn("[Meowlzz] Finder API request failed", status or "unknown")
+        warn("[Meowlzz] erro 3303032 low cortisol", status or "unknown")
     end
     local ok, res = pcall(function() return game:HttpGet(url) end)
     if ok then return res end
