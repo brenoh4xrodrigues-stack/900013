@@ -1,6 +1,10 @@
+--!nocheck
+-- ==========================================================
+-- MEOWLZZ FINDER V5.1 - soft gold glass UI, side rail, rounded
+-- same features as V4: auto joiner, refresh, clear logs, notifs
+-- ==========================================================
 local Players          = game:GetService("Players")
 local HttpService      = game:GetService("HttpService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService  = game:GetService("TeleportService")
 local CoreGui          = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
@@ -11,22 +15,33 @@ local Debris           = game:GetService("Debris")
 local LP = Players.LocalPlayer
 if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Players.LocalPlayer end
 
+-- ===== Finder API pública do Railway + chave do Scanner =====
+-- O valor precisa corresponder ao SCANNER_API_KEY configurado no servidor.
+-- A chave é enviada na URL porque game:HttpGet não envia headers customizados.
 local API_BASE = "https://meowlzz-soft-notify-production.up.railway.app/api/public/best"
-local SCANNER_API_KEY = "Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
-local function API_URL()
-    return API_BASE .. "?key=" .. HttpService:UrlEncode(SCANNER_API_KEY)
+local local_KeyScanner = "Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
+local function API_URL(minGen)
+    return API_BASE .. "?key=" .. HttpService:UrlEncode(local_KeyScanner) ..
+        "&minGen=" .. HttpService:UrlEncode(tostring(tonumber(minGen) or 0))
 end
 local JOINER_URL   = "https://meowlzz-hub-customizer.lovable.app/api/public/mz9k4x7q/hb"
 local JOINER_TOKEN = "mz_9K3xQ7pL2vNbY4fJ8hR6tW1sZaB5dE0uMcX"
 local HEARTBEAT    = 4
 
+-- ===== Dex Finder: fonte adicional via WebSocket =====
+local DEX_WS_URL = "wss://dexapi2.up.railway.app/ws"
+local DEX_RECONNECT_DELAY = 3
+
+-- ==========================================================
+-- CONSOLE LOCK + WIPE (anti-spy / anti-log-stealer) - OTIMIZADO
+-- ==========================================================
 do
     local StarterGui  = game:GetService("StarterGui")
     local CAS         = game:GetService("ContextActionService")
     local LogService  = game:GetService("LogService")
     local UIS2        = game:GetService("UserInputService")
 
-    -- 1) trava a abertura do dev console (F9 / atalhos)
+    -- 1) BLOQUEIA A ABERTURA DO DEV CONSOLE (F9 / F8)
     local function sinkKey()
         return Enum.ContextActionResult.Sink
     end
@@ -48,41 +63,24 @@ do
         end
     end)
 
-    -- 2) gera o lixo UMA vez (nao pesa no executor)
-    local CH = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%&*()[]{}<>?/|~^+="
-    local CHN = #CH
-    local function line(n)
-        local b = table.create(n)
-        for i = 1, n do
-            local p = math.random(1, CHN)
-            b[i] = CH:sub(p, p)
-        end
-        return table.concat(b)
-    end
-    local BLOCKS = {}
-    for i = 1, 6 do
-        local rows = table.create(600)
-        for r = 1, 600 do rows[r] = line(150) end
-        BLOCKS[i] = table.concat(rows, "\n")
-    end
-
+    -- 2) FUNÇÃO DE LIMPEZA DO CONSOLE
     local function wipe()
         pcall(function() if rconsoleclear then rconsoleclear() end end)
         pcall(function() if clearconsole then clearconsole() end end)
+        pcall(function() if consoleclear then consoleclear() end end)
         pcall(function() LogService:ClearOutput() end)
     end
 
-    -- 3) loop: despeja texto gigante, limpa tudo a cada 2s
+
+    -- Exposto pro botão CLEAR LOGS da UI
+    local env = (getgenv and getgenv()) or _G
+    env.__mz_wipe_console = wipe
+
+    -- 3) LOOP OTIMIZADO: Limpa console a cada 0.2s (zero lag)
     task.spawn(function()
         while true do
-            pcall(function()
-                for i = 1, 6 do
-                    print(BLOCKS[math.random(1, #BLOCKS)])
-                    task.wait(0.05)
-                end
-            end)
-            task.wait(2)
             wipe()
+            task.wait(0.2)
         end
     end)
 
@@ -115,13 +113,13 @@ local function httpGet(url)
             Headers = { ["Content-Type"] = "application/json", ["Cache-Control"] = "no-cache" } })
         local status = res and tonumber(res.StatusCode or res.Status or res.status)
         if ok and res and (not status or (status >= 200 and status < 300)) then
-            return res.Body or res.body
+            return res.Body or res.body, status
         end
-        warn("[Meowlzz] erro 3303032 low cortisol", status or "unknown")
+        if res and status then return nil, status end
     end
     local ok, res = pcall(function() return game:HttpGet(url) end)
-    if ok then return res end
-    return nil
+    if ok then return res, 200 end
+    return nil, nil
 end
 
 local function httpPostJSON(url, tbl)
@@ -149,16 +147,114 @@ local function fmt(v)
     return string.format("%d/s", v)
 end
 
-local function ago(iso)
-    if not iso then return "now" end
-    local y,mo,d,h,mi,s = tostring(iso):match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
-    if not y then return "now" end
-    local t = os.time({year=tonumber(y),month=tonumber(mo),day=tonumber(d),hour=tonumber(h),min=tonumber(mi),sec=tonumber(s)})
-    local diff = os.time() - (t - (os.time() - os.time(os.date("!*t"))))
-    if diff < 0 then diff = 0 end
-    if diff < 60 then return math.floor(diff) .. "s ago" end
-    if diff < 3600 then return math.floor(diff/60) .. "m ago" end
-    return math.floor(diff/3600) .. "h ago"
+local function cleanText(v)
+    if v == nil then return "" end
+    if type(v) == "table" then
+        local parts = {}
+        for _, item in ipairs(v) do
+            if item ~= nil then table.insert(parts, tostring(item)) end
+        end
+        if #parts == 0 then
+            for _, item in pairs(v) do
+                if item ~= nil then table.insert(parts, tostring(item)) end
+            end
+        end
+        return table.concat(parts, ", ")
+    end
+    return tostring(v)
+end
+
+local function clipText(v, maxLen)
+    local text = cleanText(v)
+    if text == "" then return "-" end
+    maxLen = maxLen or 42
+    if #text <= maxLen then return text end
+    return text:sub(1, math.max(1, maxLen - 3)) .. "..."
+end
+
+local function displayMutation(b)
+    return clipText(b.mutation or b.mutations or "None", 22)
+end
+
+local function displayTraits(b)
+    return clipText(b.traits or b.trait or "No traits", 58)
+end
+
+local function isFusing(b)
+    local value = b.fusing or b.fuse or b.isFusing
+    if type(value) == "boolean" then return value end
+    local normalized = string.lower(cleanText(value))
+    return normalized == "true" or normalized == "1" or normalized:find("fuse") ~= nil
+end
+
+local function receivedTimestamp(iso)
+    if not iso then return nil end
+    local y, mo, d, h, mi, s = tostring(iso):match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+    if not y then return nil end
+    local stamp = os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d),
+        hour = tonumber(h), min = tonumber(mi), sec = tonumber(s) })
+    return stamp - (os.time() - os.time(os.date("!*t")))
+end
+
+local RECENT_WINDOW_SECONDS = 4 * 60
+local function isRecentLog(b)
+    if b.source == "DEX" and not b.received_at then return true end
+    local stamp = receivedTimestamp(b.received_at)
+    return stamp ~= nil and os.time() - stamp <= RECENT_WINDOW_SECONDS
+end
+
+local function isFreshForNotification(b)
+    return isRecentLog(b)
+end
+
+local function parseValue(v)
+    if type(v) == "number" then return v end
+    local text = string.upper(cleanText(v)):gsub("%s+", ""):gsub(",", "")
+    if text == "" then return 0 end
+    local direct = tonumber(text)
+    if direct then return direct end
+    local number, suffix = text:match("([%d%.]+)([KMBT]?)")
+    number = tonumber(number)
+    if not number then return 0 end
+    local multiplier = ({ K = 1e3, M = 1e6, B = 1e9, T = 1e12 })[suffix or ""] or 1
+    return number * multiplier
+end
+
+local function normalizeRow(row, source)
+    if type(row) ~= "table" then return nil end
+    local name = cleanText(row.name or row.brainrot or row.animal or row.pet or row.itemName or
+        row.item or row.displayName or row.brainrotName or row.petName or row.title)
+    local value = parseValue(row.gen_val or row.genVal or row.generationValue or row.generation or
+        row.generationPerSecond or row.genPerSec or row.income or row.value or row.money or
+        row.gen or row.genText)
+    if name == "" or value <= 0 then return nil end
+    local normalized = {
+        name = name,
+        gen_val = value,
+        gen = cleanText(row.gen or row.genText or fmt(value)),
+        mutation = cleanText(row.mutation or row.mutations or row.mut or row.mutationName or "None"),
+        rarity = cleanText(row.rarity or row.rarityName or row.tier or row.category or "Unknown"),
+        traits = cleanText(row.traits or row.trait or row.attributes or row.abilities or "No traits"),
+        owner = cleanText(row.owner or row.ownerName or row.player or row.username or row.user),
+        server_id = cleanText(row.server_id or row.serverId or row.jobId or row.job_id),
+        place_id = cleanText(row.place_id or row.placeId or row.gameId),
+        player_count = row.player_count or row.playerCount or row.players,
+        max_players = row.max_players or row.maxPlayers,
+        image_url = row.image_url or row.imageUrl or row.image,
+        received_at = row.received_at or row.receivedAt or row.timestamp or row.time,
+        source = source or row.source or "SCANNER",
+        external_id = cleanText(row.id or row.uid or row.uuid or row.uniqueId),
+        uid = cleanText(row.uid or row.uuid or row.uniqueId or row.id),
+        index = cleanText(row.index or row.animalIndex or row.itemIndex),
+        plot = cleanText(row.plot or row.plot_name or row.plotName),
+        slot = cleanText(row.slot or row.slot_index or row.slotIndex),
+        fusing = cleanText(row.fusing or row.fuse or row.isFusing),
+    }
+    normalized._key = table.concat({
+        normalized.source, normalized.external_id, normalized.name, normalized.server_id,
+        tostring(normalized.gen_val), normalized.mutation, normalized.traits, normalized.owner,
+    }, "|")
+    return normalized
 end
 
 -- ===== config =====
@@ -168,6 +264,7 @@ local function threshold() return (tonumber(cfg.minVal) or 0) * (UNITS[cfg.unit]
 
 local function rarityOK(r)
     r = string.lower(tostring(r or ""))
+    if r == "" or r == "unknown" then return true end
     if r:find("og") and cfg.og then return true end
     if r:find("secret") and cfg.secret then return true end
     if (r:find("good") or r:find("brainrot god") or r:find("god")) and cfg.good then return true end
@@ -217,8 +314,8 @@ end
 
 -- ===== window =====
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 430, 0, 292)
-main.Position = UDim2.new(0, 20, 0.5, -146)
+main.Size = UDim2.new(0, 512, 0, 344)
+main.Position = UDim2.new(0, 20, 0.5, -172)
 main.BackgroundColor3 = BG
 main.BackgroundTransparency = 0.18   -- semi transparente
 main.BorderSizePixel = 0
@@ -444,8 +541,8 @@ local function quickBtn(txt, w, fn, filled)
 end
 
 local list = Instance.new("ScrollingFrame")
-list.Position = UDim2.new(0, 0, 0, 166)
-list.Size = UDim2.new(1, 0, 1, -166)
+list.Position = UDim2.new(0, 0, 0, 32)
+list.Size = UDim2.new(1, 0, 1, -32)
 list.BackgroundTransparency = 1
 list.BorderSizePixel = 0
 list.ScrollBarThickness = 3
@@ -457,111 +554,6 @@ list.Parent = pLogs
 local listLayout = Instance.new("UIListLayout")
 listLayout.Padding = UDim.new(0, 6)
 listLayout.Parent = list
-
--- ===== 3D preview da melhor brainrot =====
-local previewBox = Instance.new("Frame")
-previewBox.Position = UDim2.new(0, 0, 0, 32)
-previewBox.Size = UDim2.new(1, 0, 0, 126)
-previewBox.BackgroundColor3 = BG2
-previewBox.BackgroundTransparency = 0.12
-previewBox.BorderSizePixel = 0
-previewBox.ClipsDescendants = true
-previewBox.Parent = pLogs
-corner(previewBox, 12) stroke(previewBox, GOLD, 0.65)
-
-local preview = Instance.new("ViewportFrame")
-preview.Size = UDim2.new(1, -8, 1, -8)
-preview.Position = UDim2.new(0, 4, 0, 4)
-preview.BackgroundTransparency = 1
-preview.Visible = false
-preview.Parent = previewBox
-
-local previewCamera = Instance.new("Camera")
-previewCamera.FieldOfView = 45
-previewCamera.Parent = preview
-preview.CurrentCamera = previewCamera
-
-local previewPlaceholder = Instance.new("TextLabel")
-previewPlaceholder.Size = UDim2.new(1, 0, 1, 0)
-previewPlaceholder.BackgroundTransparency = 1
-previewPlaceholder.Text = "Selecione uma brainrot para ver o modelo 3D"
-previewPlaceholder.TextColor3 = DIM
-previewPlaceholder.Font = Enum.Font.Gotham
-previewPlaceholder.TextSize = 10
-previewPlaceholder.TextWrapped = true
-previewPlaceholder.Parent = previewBox
-
-local previewThread
-local function clearPreview()
-    if previewThread then
-        pcall(task.cancel, previewThread)
-        previewThread = nil
-    end
-    for _, child in ipairs(preview:GetChildren()) do
-        if child ~= previewCamera then child:Destroy() end
-    end
-    preview.Visible = false
-    previewPlaceholder.Visible = true
-end
-
-local function framePreviewModel(model)
-    local ok, cf, size = pcall(function() return model:GetBoundingBox() end)
-    if not ok or not cf or not size then return end
-    local maxDim = math.max(size.X, size.Y, size.Z)
-    local distance = math.max(4, (maxDim * 0.5 / math.tan(math.rad(previewCamera.FieldOfView / 2))) * 1.25)
-    local target = cf.Position + Vector3.new(0, size.Y * 0.08, 0)
-    previewCamera.CFrame = CFrame.new(target + Vector3.new(-1, 0.35, -1).Unit * distance, target)
-end
-
-local function loadPreview(brainrot)
-    clearPreview()
-    if not brainrot or not brainrot.name then return end
-
-    local shared = ReplicatedStorage:FindFirstChild("Shared")
-    local animalsModule = shared and shared:FindFirstChild("Animals")
-    if not animalsModule then
-        previewPlaceholder.Text = "Modelo 3D indisponível nesta experiência"
-        return
-    end
-
-    local okRequire, animals = pcall(require, animalsModule)
-    if not okRequire or type(animals) ~= "table" or type(animals.AttachOnViewportWithOptimizations) ~= "function" then
-        previewPlaceholder.Text = "Modelo 3D indisponível nesta experiência"
-        return
-    end
-
-    previewThread = task.spawn(function()
-        local okAttach = pcall(function()
-            animals:AttachOnViewportWithOptimizations(
-                tostring(brainrot.name),
-                preview,
-                "None",
-                nil
-            )
-        end)
-        if not okAttach then
-            previewPlaceholder.Text = "Não foi possível carregar o modelo 3D"
-            return
-        end
-
-        for _ = 1, 30 do
-            local model
-            for _, descendant in ipairs(preview:GetDescendants()) do
-                if descendant:IsA("Model") then model = descendant break end
-            end
-            if model then
-                framePreviewModel(model)
-                preview.Visible = true
-                previewPlaceholder.Visible = false
-                return
-            end
-            task.wait()
-        end
-
-        preview.Visible = true
-        previewPlaceholder.Visible = false
-    end)
-end
 
 local cleared = {}
 local lastRows = {}
@@ -603,7 +595,7 @@ end
 
 local function makeCard(b)
     local f = Instance.new("Frame")
-    f.Size = UDim2.new(1, -6, 0, 56)
+    f.Size = UDim2.new(1, -6, 0, 72)
     f.BackgroundColor3 = BG2
     f.BackgroundTransparency = 0.2
     f.BorderSizePixel = 0
@@ -632,43 +624,49 @@ local function makeCard(b)
 
     local sub = Instance.new("TextLabel")
     sub.BackgroundTransparency = 1
-    sub.Position = UDim2.new(0, 18, 0, 23)
+    sub.Position = UDim2.new(0, 18, 0, 21)
     sub.Size = UDim2.new(1, -80, 0, 14)
     sub.Font = Enum.Font.GothamMedium
-    sub.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.rarity or "?")
+    sub.Text = "Value: " .. fmt(b.gen_val)
     sub.TextSize = 10
     sub.TextColor3 = TXT
     sub.TextXAlignment = Enum.TextXAlignment.Left
     sub.TextTruncate = Enum.TextTruncate.AtEnd
     sub.Parent = f
 
+    local mutation = Instance.new("TextLabel")
+    mutation.BackgroundTransparency = 1
+    mutation.Position = UDim2.new(0, 18, 0, 37)
+    mutation.Size = UDim2.new(1, -80, 0, 14)
+    mutation.Font = Enum.Font.Gotham
+    mutation.Text = "Mutation: " .. displayMutation(b)
+    mutation.TextSize = 8
+    mutation.TextColor3 = TXT
+    mutation.TextXAlignment = Enum.TextXAlignment.Left
+    mutation.TextTruncate = Enum.TextTruncate.AtEnd
+    mutation.Parent = f
+
     local meta = Instance.new("TextLabel")
     meta.BackgroundTransparency = 1
-    meta.Position = UDim2.new(0, 18, 0, 37)
-    meta.Size = UDim2.new(1, -80, 0, 13)
+    meta.Position = UDim2.new(0, 18, 0, 53)
+    meta.Size = UDim2.new(1, -80, 0, 14)
     meta.Font = Enum.Font.Gotham
-    meta.Text = (b.traits and b.traits ~= "" and b.traits or "No traits") .. "  •  " .. ago(b.received_at)
-    meta.TextSize = 9
+    meta.Text = "Traits: " .. displayTraits(b)
+    meta.TextSize = 8
     meta.TextColor3 = DIM
     meta.TextXAlignment = Enum.TextXAlignment.Left
     meta.TextTruncate = Enum.TextTruncate.AtEnd
     meta.Parent = f
 
     joinButton(f, b, 52, 24)
-    f.Active = true
-    f.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            loadPreview(b)
-        end
-    end)
     return f
 end
 
--- ===== notifications (max 3, 3s, sound) =====
+-- ===== notifications (max 3 visible, queued, 3s, sound) =====
 local notifHolder = Instance.new("Frame")
 notifHolder.AnchorPoint = Vector2.new(0.5, 0)
 notifHolder.Position = UDim2.new(0.5, 0, 0, 10)
-notifHolder.Size = UDim2.new(0, 320, 0, 190)
+notifHolder.Size = UDim2.new(0, 340, 0, 220)
 notifHolder.BackgroundTransparency = 1
 notifHolder.Parent = gui
 local nLayout = Instance.new("UIListLayout")
@@ -677,6 +675,13 @@ nLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 nLayout.Parent = notifHolder
 
 local activeNotifs = {}
+local notificationQueue = {}
+local notificationPumpRunning = false
+
+local function notificationKey(b)
+    return b._key or (tostring(b.name) .. "|" .. tostring(b.server_id) .. "|" ..
+        tostring(b.gen_val) .. "|" .. tostring(b.mutation) .. "|" .. tostring(b.traits))
+end
 
 local function playPing()
     local s = Instance.new("Sound")
@@ -698,8 +703,9 @@ local function removeNotif(entry)
 end
 
 local function showNotif(b)
+    local key = notificationKey(b)
     for _, e in ipairs(activeNotifs) do
-        if e.key == (tostring(b.name) .. tostring(b.server_id)) then return end
+        if e.key == key then return end
     end
     if #activeNotifs >= 3 then
         local worst, _idx = nil, nil
@@ -711,133 +717,166 @@ local function showNotif(b)
     end
 
     local f = Instance.new("Frame")
-    f.Size = UDim2.new(1, 0, 0, 56)
-    f.BackgroundColor3 = BG2
+    local fuse = isFusing(b)
+    local alertRed = Color3.fromRGB(185, 52, 52)
+    local alertRedSoft = Color3.fromRGB(255, 150, 150)
+    f.Size = UDim2.new(1, 0, 0, 64)
+    f.BackgroundColor3 = fuse and Color3.fromRGB(68, 24, 24) or BG2
     f.BackgroundTransparency = 1
     f.BorderSizePixel = 0
     f.Parent = notifHolder
-    corner(f, 12) stroke(f, GOLD, 0.35)
+    corner(f, 12) stroke(f, fuse and alertRed or GOLD, 0.35)
     TweenService:Create(f, TweenInfo.new(0.25), { BackgroundTransparency = 0.12 }):Play()
 
-    local ic = Instance.new("ImageLabel")
-    ic.Size = UDim2.new(0, 34, 0, 34)
-    ic.Position = UDim2.new(0, 9, 0.5, -17)
-    ic.BackgroundColor3 = BG3
-    ic.BackgroundTransparency = 0.25
-    ic.BorderSizePixel = 0
-    ic.Image = LOGO
-    ic.ScaleType = Enum.ScaleType.Fit
-    ic.Parent = f
-    corner(ic, 10) stroke(ic, GOLD, 0.55)
-
-    local miniPreview = Instance.new("ViewportFrame")
-    miniPreview.Size = UDim2.new(0, 42, 0, 42)
-    miniPreview.Position = UDim2.new(0, 5, 0.5, -21)
-    miniPreview.BackgroundTransparency = 1
-    miniPreview.Visible = false
-    miniPreview.Parent = f
-    local miniCamera = Instance.new("Camera")
-    miniCamera.FieldOfView = 45
-    miniCamera.Parent = miniPreview
-    miniPreview.CurrentCamera = miniCamera
-
-    task.spawn(function()
-        local shared = ReplicatedStorage:FindFirstChild("Shared")
-        local animalsModule = shared and shared:FindFirstChild("Animals")
-        local okRequire, animals = animalsModule and pcall(require, animalsModule)
-        if not okRequire or type(animals) ~= "table" or type(animals.AttachOnViewportWithOptimizations) ~= "function" then
-            return
-        end
-        local okAttach = pcall(function()
-            animals:AttachOnViewportWithOptimizations(tostring(b.name), miniPreview, "None", nil)
-        end)
-        if not okAttach then return end
-        for _ = 1, 20 do
-            local model
-            for _, descendant in ipairs(miniPreview:GetDescendants()) do
-                if descendant:IsA("Model") then model = descendant break end
-            end
-            if model then
-                local okBounds, cf, size = pcall(function() return model:GetBoundingBox() end)
-                if okBounds and cf and size then
-                    local maxDim = math.max(size.X, size.Y, size.Z)
-                    local distance = math.max(3, (maxDim * 0.5 / math.tan(math.rad(22.5))) * 1.2)
-                    local target = cf.Position + Vector3.new(0, size.Y * 0.08, 0)
-                    miniCamera.CFrame = CFrame.new(target + Vector3.new(-1, 0.35, -1).Unit * distance, target)
-                end
-                miniPreview.Visible = true
-                ic.Visible = false
-                return
-            end
-            task.wait()
-        end
-    end)
+    local accentN = Instance.new("Frame")
+    accentN.Size = UDim2.new(0, 3, 1, -16)
+    accentN.Position = UDim2.new(0, 4, 0, 8)
+    accentN.BackgroundColor3 = fuse and alertRed or GOLD
+    accentN.BorderSizePixel = 0
+    accentN.Parent = f
+    corner(accentN, 2)
 
     local n = Instance.new("TextLabel")
     n.BackgroundTransparency = 1
-    n.Position = UDim2.new(0, 51, 0, 7)
-    n.Size = UDim2.new(1, -115, 0, 15)
+    n.Position = UDim2.new(0, 12, 0, 7)
+    n.Size = UDim2.new(1, -80, 0, 15)
     n.Font = Enum.Font.GothamBold
     n.Text = tostring(b.name or "?")
     n.TextSize = 12
-    n.TextColor3 = GOLD_SOFT
+    n.TextColor3 = fuse and alertRedSoft or GOLD_SOFT
     n.TextXAlignment = Enum.TextXAlignment.Left
     n.TextTruncate = Enum.TextTruncate.AtEnd
     n.Parent = f
 
     local d = Instance.new("TextLabel")
     d.BackgroundTransparency = 1
-    d.Position = UDim2.new(0, 51, 0, 23)
-    d.Size = UDim2.new(1, -115, 0, 26)
+    d.Position = UDim2.new(0, 12, 0, 25)
+    d.Size = UDim2.new(1, -80, 0, 34)
     d.Font = Enum.Font.Gotham
-    d.Text = fmt(b.gen_val) .. "  •  " .. tostring(b.mutation or "None") .. "\n" ..
-             (b.traits and b.traits ~= "" and b.traits or "No traits")
+    d.Text = fmt(b.gen_val) .. "\n" ..
+             "Mutation: " .. displayMutation(b) .. "\n" ..
+             "Traits: " .. displayTraits(b)
     d.TextSize = 9
-    d.TextColor3 = TXT
+    d.TextColor3 = fuse and alertRedSoft or TXT
     d.TextXAlignment = Enum.TextXAlignment.Left
     d.TextYAlignment = Enum.TextYAlignment.Top
     d.Parent = f
 
     joinButton(f, b, 52, 24)
 
-    local entry = { frame = f, val = tonumber(b.gen_val) or 0, key = tostring(b.name) .. tostring(b.server_id) }
+    local entry = { frame = f, val = tonumber(b.gen_val) or 0, key = key }
     table.insert(activeNotifs, entry)
     pcall(playPing)
     task.delay(3, function() removeNotif(entry) end)
 end
 
--- ===== refresh =====
+local function pumpNotificationQueue()
+    if notificationPumpRunning then return end
+    notificationPumpRunning = true
+    task.spawn(function()
+        while gui.Parent do
+            while #notificationQueue > 0 and #activeNotifs < 3 do
+                local b = table.remove(notificationQueue, 1)
+                showNotif(b)
+            end
+            if #notificationQueue == 0 then break end
+            task.wait(0.15)
+        end
+        notificationPumpRunning = false
+    end)
+end
+
+local queuedNotificationKeys = {}
+
+local function enqueueNotification(b)
+    local key = notificationKey(b)
+    if queuedNotificationKeys[key] then return end
+    queuedNotificationKeys[key] = true
+    table.insert(notificationQueue, b)
+end
+
+-- ===== Scanner + Dex: cada brainrot individual, sem melhor por servidor =====
 local notified = {}
 local statusLbl
-local function refresh()
-    local raw = httpGet(API_URL())
-    if not raw then
-        if statusLbl then statusLbl.Text = "API offline" end
-        return
-    end
-    local ok, data = pcall(HttpService.JSONDecode, HttpService, raw)
-    if not ok or type(data) ~= "table" then
-        if statusLbl then statusLbl.Text = "API inválida" end
-        return
-    end
-    if data.error then
-        if statusLbl then statusLbl.Text = "API: " .. tostring(data.error):sub(1, 26) end
-        return
-    end
-    local rows = data.data or data.servers or data.results or {}
-    if type(rows) ~= "table" then
-        if statusLbl then statusLbl.Text = "Dados inválidos" end
-        return
-    end
+local scannerRows = {}
+local dexRows = {}
+local dexIndex = {}
+local scannerStatus = "IDLE"
+local dexStatus = "OFFLINE"
+local dexConnecting = false
 
-    local kept = {}
-    for _, b in ipairs(rows) do
-        local key = tostring(b.name) .. "|" .. tostring(b.server_id) .. "|" .. tostring(b.gen_val)
-        if passes(b) and not cleared[key] then
-            b._key = key
-            table.insert(kept, b)
+local function parseDexDelimitedMessage(message)
+    local row = {}
+    for part in tostring(message):gmatch("([^|\n]+)") do
+        local key, value = part:match("^%s*([^:=]+)%s*[:=]%s*(.-)%s*$")
+        if key and value then
+            key = string.lower(key):gsub("[%s_%-]", "")
+            if key == "name" or key == "brainrot" or key == "animal" or key == "pet" or key == "item" then
+                row.name = value
+            elseif key:find("mutation") or key == "mut" then
+                row.mutation = value
+            elseif key:find("rarity") or key == "tier" then
+                row.rarity = value
+            elseif key:find("trait") or key:find("attribute") then
+                row.traits = value
+            elseif key:find("gen") or key == "value" or key == "money" then
+                row.gen = value
+            elseif key:find("owner") or key:find("player") or key == "user" or key == "username" then
+                row.owner = value
+            elseif key:find("server") or key == "job" then
+                row.server_id = value
+            elseif key:find("place") or key == "gameid" then
+                row.place_id = value
+            end
         end
     end
+    return normalizeRow(row, "DEX")
+end
+
+local function collectDexRows(node, output, seen, depth)
+    if type(node) ~= "table" or depth > 7 then return end
+    local row = normalizeRow(node, "DEX")
+    if row and not seen[row._key] then
+        seen[row._key] = true
+        table.insert(output, row)
+    end
+    for _, child in pairs(node) do
+        if type(child) == "table" then
+            collectDexRows(child, output, seen, depth + 1)
+        end
+    end
+end
+
+local function decodeDexMessage(message)
+    local rows, seen = {}, {}
+    local ok, decoded = pcall(HttpService.JSONDecode, HttpService, tostring(message))
+    if ok and type(decoded) == "table" then
+        collectDexRows(decoded, rows, seen, 0)
+    else
+        local row = parseDexDelimitedMessage(message)
+        if row then table.insert(rows, row) end
+    end
+    return rows
+end
+
+local function renderCombinedRows()
+    for i = #dexRows, 1, -1 do
+        if not isRecentLog(dexRows[i]) then
+            dexIndex[dexRows[i]._key] = nil
+            table.remove(dexRows, i)
+        end
+    end
+    local kept, seen = {}, {}
+    local function appendRows(rows)
+        for _, b in ipairs(rows) do
+            if passes(b) and isRecentLog(b) and not cleared[b._key] and not seen[b._key] then
+                seen[b._key] = true
+                table.insert(kept, b)
+            end
+        end
+    end
+    appendRows(scannerRows)
+    appendRows(dexRows)
     table.sort(kept, function(x, y) return (tonumber(x.gen_val) or 0) > (tonumber(y.gen_val) or 0) end)
 
     lastRows = kept
@@ -845,7 +884,6 @@ local function refresh()
         if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
     end
     if #kept == 0 then
-        clearPreview()
         local e = Instance.new("TextLabel")
         e.Size = UDim2.new(1, -6, 0, 46)
         e.BackgroundTransparency = 1
@@ -856,34 +894,232 @@ local function refresh()
         e.Parent = list
     end
     for i, b in ipairs(kept) do
-        if i > 30 then break end
-        makeCard(b)
-        if i == 1 then loadPreview(b) end
+        if i <= 30 then makeCard(b) end
         if not notified[b._key] then
             notified[b._key] = true
-            showNotif(b)
+            if isFreshForNotification(b) then
+                enqueueNotification(b)
+            end
         end
     end
-    if statusLbl then statusLbl.Text = tostring(#kept) .. " logs" end
+    table.sort(notificationQueue, function(x, y)
+        return (tonumber(x.gen_val) or 0) > (tonumber(y.gen_val) or 0)
+    end)
+    pumpNotificationQueue()
+    if statusLbl then
+        statusLbl.Text = "TOTAL " .. tostring(#kept) .. "  •  S:" .. scannerStatus .. " D:" .. dexStatus
+    end
 end
 
-quickBtn("FORCE REFRESH", 92, function() task.spawn(refresh) end, true)
-quickBtn("CLEAR LOGS", 76, function()
+local function acceptDexMessage(message)
+    local rows = decodeDexMessage(message)
+    if #rows == 0 then
+        dexStatus = "NO DATA"
+        if statusLbl then renderCombinedRows() end
+        return
+    end
+    for _, row in ipairs(rows) do
+        if not row.received_at then
+            row.received_at = os.date("!%Y-%m-%dT%H:%M:%S")
+        end
+        local index = dexIndex[row._key]
+        if index then
+            dexRows[index] = row
+        else
+            table.insert(dexRows, row)
+            dexIndex[row._key] = #dexRows
+        end
+    end
+    dexStatus = "OK"
+    renderCombinedRows()
+end
+
+local function startDexSocket()
+    local connectFn
+    pcall(function()
+        if WebSocket then connectFn = WebSocket.connect end
+    end)
+    if dexConnecting or type(connectFn) ~= "function" then
+        dexStatus = "NO WS"
+        if statusLbl then renderCombinedRows() end
+        return
+    end
+    dexConnecting = true
+    local ok, ws = pcall(connectFn, DEX_WS_URL)
+    dexConnecting = false
+    if not ok or not ws then
+        dexStatus = "CONNECT ERROR"
+        if statusLbl then renderCombinedRows() end
+        task.delay(DEX_RECONNECT_DELAY, startDexSocket)
+        return
+    end
+    dexStatus = "CONNECTED"
+    if statusLbl then renderCombinedRows() end
+    pcall(function()
+        ws.OnMessage:Connect(function(message)
+            pcall(acceptDexMessage, message)
+        end)
+    end)
+    pcall(function()
+        ws.OnClose:Connect(function()
+            dexStatus = "CLOSED"
+            if gui.Parent then
+                task.delay(DEX_RECONNECT_DELAY, startDexSocket)
+            end
+        end)
+    end)
+end
+
+local function refresh()
+    local raw, httpStatus = httpGet(API_URL(threshold()))
+    if not raw then
+        scannerStatus = httpStatus and ("HTTP " .. tostring(httpStatus)) or "OFFLINE"
+        renderCombinedRows()
+        return
+    end
+    local ok, data = pcall(HttpService.JSONDecode, HttpService, raw)
+    if not ok or type(data) ~= "table" then
+        scannerStatus = "JSON ERROR"
+        renderCombinedRows()
+        return
+    end
+    if data.error then
+        scannerStatus = "API ERROR"
+        renderCombinedRows()
+        return
+    end
+    local rows = data.data or data.servers or data.results or {}
+    if type(rows) ~= "table" then
+        scannerStatus = "DATA ERROR"
+        renderCombinedRows()
+        return
+    end
+
+    scannerRows = {}
+    for _, row in ipairs(rows) do
+        local normalized = normalizeRow(row, "SCANNER")
+        if normalized then table.insert(scannerRows, normalized) end
+    end
+    scannerStatus = "OK"
+    renderCombinedRows()
+end
+
+quickBtn("REFRESH", 62, function() task.spawn(refresh) end, true)
+quickBtn("CLEAR", 54, function()
+    pcall(function()
+        local env = (getgenv and getgenv()) or _G
+        if env.__mz_wipe_console then env.__mz_wipe_console() end
+    end)
     for _, b in ipairs(lastRows) do cleared[b._key] = true end
     for _, e in ipairs({ table.unpack(activeNotifs) }) do removeNotif(e) end
     for _, c in ipairs(list:GetChildren()) do
         if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
     end
-    if statusLbl then statusLbl.Text = "0 logs" end
+    notified = {}
+    queuedNotificationKeys = {}
+    notificationQueue = {}
+    if statusLbl then statusLbl.Text = "TOTAL LOGS 0" end
 end)
-quickBtn("TOP", 40, function() list.CanvasPosition = Vector2.new(0, 0) end)
+quickBtn("TOP", 32, function() list.CanvasPosition = Vector2.new(0, 0) end)
+
+-- ===== AUTO JOINER / AUTO FORCE =====
+local autoJoin, autoForce = false, false
+
+local function toggleBtn(txt, w, getter, setter)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, w, 1, 0)
+    b.BackgroundColor3 = BG3
+    b.BackgroundTransparency = 0.2
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.Font = Enum.Font.GothamBold
+    b.Text = txt
+    b.TextSize = 8
+    b.TextColor3 = DIM
+    b.Parent = quickBar
+    corner(b, 9)
+    local st = stroke(b, GOLD, 0.7)
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0, 5, 0, 5)
+    dot.Position = UDim2.new(0, 5, 0.5, -2)
+    dot.BackgroundColor3 = Color3.fromRGB(120, 110, 95)
+    dot.BorderSizePixel = 0
+    dot.Parent = b
+    corner(dot, 3)
+    local function paint()
+        local on = getter()
+        TweenService:Create(b, TweenInfo.new(0.15), {
+            BackgroundColor3 = on and GOLD or BG3,
+            BackgroundTransparency = on and 0 or 0.2,
+            TextColor3 = on and INK or DIM,
+        }):Play()
+        dot.BackgroundColor3 = on and Color3.fromRGB(70, 200, 110) or Color3.fromRGB(120, 110, 95)
+        st.Transparency = on and 0.9 or 0.7
+    end
+    b.MouseButton1Click:Connect(function() setter(not getter()) paint() end)
+    paint()
+    return b
+end
+
+toggleBtn("A-JOINER", 66, function() return autoJoin end, function(v) autoJoin = v end)
+toggleBtn("A-FORCE", 64, function() return autoForce end, function(v)
+    autoForce = v
+    if v then autoJoin = true end
+end)
+
+local function bestRow()
+    for _, b in ipairs(lastRows) do
+        local sid = tostring(b.server_id or "")
+        if sid ~= "" and sid ~= tostring(game.JobId) then return b end
+    end
+    return nil
+end
+
+-- teleport falhou? tenta de novo na hora
+TeleportService.TeleportInitFailed:Connect(function(_, _, msg)
+    if autoForce or autoJoin then
+        task.wait(autoForce and 0.2 or 1.5)
+        local b = bestRow()
+        if b then pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id) end
+    end
+end)
+
+-- AUTO JOINER: fica tentando entrar no servidor da melhor log
+task.spawn(function()
+    while gui.Parent do
+        if autoJoin and not autoForce then
+            local b = bestRow()
+            if b then pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id) end
+            task.wait(5)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- AUTO FORCE: forca entrada instantaneamente ate ir
+task.spawn(function()
+    while gui.Parent do
+        if autoForce then
+            local b = bestRow()
+            if b then
+                pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id)
+                task.wait(0.35)
+            else
+                task.wait(0.35)
+            end
+        else
+            task.wait(0.4)
+        end
+    end
+end)
 
 statusLbl = Instance.new("TextLabel")
-statusLbl.Size = UDim2.new(0, 60, 1, 0)
+statusLbl.Size = UDim2.new(1, -284, 1, 0)
 statusLbl.BackgroundTransparency = 1
 statusLbl.Font = Enum.Font.Gotham
-statusLbl.Text = "0 logs"
-statusLbl.TextSize = 9
+statusLbl.Text = "TOTAL LOGS 0"
+statusLbl.TextSize = 8
 statusLbl.TextColor3 = DIM
 statusLbl.TextXAlignment = Enum.TextXAlignment.Right
 statusLbl.Parent = quickBar
@@ -1053,7 +1289,7 @@ hint.Position = UDim2.new(0, 12, 0, 26)
 hint.Size = UDim2.new(1, -24, 0, 30)
 hint.BackgroundTransparency = 1
 hint.Font = Enum.Font.Gotham
-hint.Text = "Notifications stack up to 3 (3s each) with sound + join.\nCLEAR LOGS wipes the list and the on-screen alerts."
+hint.Text = "A-JOINER keeps retrying the best log server. A-FORCE\nspams the join until it lands. CLEAR wipes logs + console."
 hint.TextSize = 9
 hint.TextWrapped = true
 hint.TextColor3 = DIM
@@ -1240,13 +1476,13 @@ LP.CharacterAdded:Connect(function()
 end)
 
 -- ===== header buttons + drag =====
-local OPEN_SIZE = UDim2.new(0, 430, 0, 292)
+local OPEN_SIZE = UDim2.new(0, 512, 0, 344)
 local minimized = false
 headBtn("-", -62, function()
     minimized = not minimized
     body.Visible = not minimized
     TweenService:Create(main, TweenInfo.new(0.18), {
-        Size = minimized and UDim2.new(0, 430, 0, 40) or OPEN_SIZE
+        Size = minimized and UDim2.new(0, 512, 0, 40) or OPEN_SIZE
     }):Play()
 end)
 headBtn("X", -32, function() gui:Destroy() end)
@@ -1275,6 +1511,7 @@ end
 setTab("logs")
 renderUsers({})
 task.spawn(refresh)
+task.spawn(startDexSocket)
 task.spawn(function()
     while gui.Parent do
         task.wait(1)
@@ -1288,4 +1525,4 @@ task.spawn(function()
     end
 end)
 
-print("[Meowlzz Finder] V5 loaded")
+print("[Meowlzz Finder] V5.1 loaded")
