@@ -164,6 +164,42 @@ local function cleanText(v)
     return tostring(v)
 end
 
+local function compactKey(v)
+    return string.lower(tostring(v)):gsub("[^%w]", "")
+end
+
+local function rowField(row, ...)
+    if type(row) ~= "table" then return nil end
+    local aliases = {}
+    for i = 1, select("#", ...) do
+        local wanted = select(i, ...)
+        if row[wanted] ~= nil then return row[wanted] end
+        aliases[compactKey(wanted)] = true
+    end
+    for key, value in pairs(row) do
+        if aliases[compactKey(key)] then return value end
+    end
+    return nil
+end
+
+local function normalizeTimestamp(value)
+    if value == nil then return nil end
+    if type(value) == "number" then
+        if value > 100000000000 then value = value / 1000 end
+        return os.date("!%Y-%m-%dT%H:%M:%S", math.floor(value))
+    end
+    local text = cleanText(value)
+    local numeric = tonumber(text)
+    if numeric then
+        if numeric > 100000000000 then numeric = numeric / 1000 end
+        return os.date("!%Y-%m-%dT%H:%M:%S", math.floor(numeric))
+    end
+    if text:match("^%d%d%d%d%-%d%d%-%d%d[T ]%d%d:%d%d:%d%d") then
+        return text:gsub(" ", "T", 1)
+    end
+    return nil
+end
+
 local function clipText(v, maxLen)
     local text = cleanText(v)
     if text == "" then return "-" end
@@ -198,7 +234,6 @@ end
 
 local RECENT_WINDOW_SECONDS = 4 * 60
 local function isRecentLog(b)
-    if b.source == "DEX" and not b.received_at then return true end
     local stamp = receivedTimestamp(b.received_at)
     return stamp ~= nil and os.time() - stamp <= RECENT_WINDOW_SECONDS
 end
@@ -222,34 +257,51 @@ end
 
 local function normalizeRow(row, source)
     if type(row) ~= "table" then return nil end
-    local name = cleanText(row.name or row.brainrot or row.animal or row.pet or row.itemName or
-        row.item or row.displayName or row.brainrotName or row.petName or row.title)
-    local value = parseValue(row.gen_val or row.genVal or row.generationValue or row.generation or
-        row.generationPerSecond or row.genPerSec or row.income or row.value or row.money or
-        row.gen or row.genText)
+    local name = cleanText(rowField(row, "name", "brainrot", "animal", "pet", "itemName", "item",
+        "displayName", "brainrotName", "petName", "title"))
+    local value = parseValue(rowField(row, "gen_val", "genVal", "generationValue", "generation",
+        "generationPerSecond", "generationPerSec", "genPerSec", "income", "value", "money",
+        "moneyPerSecond", "valuePerSecond", "amount", "cash", "gen", "genText"))
     if name == "" or value <= 0 then return nil end
+
+    local rawServer = rowField(row, "server_id", "serverId", "server", "jobId", "job_id", "job",
+        "gameJobId", "instanceId", "instance")
+    if type(rawServer) == "table" then
+        rawServer = rowField(rawServer, "id", "value", "server_id", "serverId", "jobId", "job_id", "job")
+    end
+    local rawPlace = rowField(row, "place_id", "placeId", "place", "gameId", "game_id", "experienceId")
+    if type(rawPlace) == "table" then
+        rawPlace = rowField(rawPlace, "id", "value", "place_id", "placeId", "gameId")
+    end
+    local detectedSource = cleanText(rowField(row, "source", "sourceType"))
+    if detectedSource == "" then detectedSource = source or "SCANNER" end
+
     local normalized = {
         name = name,
         gen_val = value,
-        gen = cleanText(row.gen or row.genText or fmt(value)),
-        mutation = cleanText(row.mutation or row.mutations or row.mut or row.mutationName or "None"),
-        rarity = cleanText(row.rarity or row.rarityName or row.tier or row.category or "Unknown"),
-        traits = cleanText(row.traits or row.trait or row.attributes or row.abilities or "No traits"),
-        owner = cleanText(row.owner or row.ownerName or row.player or row.username or row.user),
-        server_id = cleanText(row.server_id or row.serverId or row.jobId or row.job_id),
-        place_id = cleanText(row.place_id or row.placeId or row.gameId),
-        player_count = row.player_count or row.playerCount or row.players,
-        max_players = row.max_players or row.maxPlayers,
-        image_url = row.image_url or row.imageUrl or row.image,
-        received_at = row.received_at or row.receivedAt or row.timestamp or row.time,
-        source = source or row.source or "SCANNER",
-        external_id = cleanText(row.id or row.uid or row.uuid or row.uniqueId),
-        uid = cleanText(row.uid or row.uuid or row.uniqueId or row.id),
-        index = cleanText(row.index or row.animalIndex or row.itemIndex),
-        plot = cleanText(row.plot or row.plot_name or row.plotName),
-        slot = cleanText(row.slot or row.slot_index or row.slotIndex),
-        fusing = cleanText(row.fusing or row.fuse or row.isFusing),
+        gen = cleanText(rowField(row, "gen", "genText")) ~= "" and
+            cleanText(rowField(row, "gen", "genText")) or fmt(value),
+        mutation = cleanText(rowField(row, "mutation", "mutations", "mut", "mutationName")) or "None",
+        rarity = cleanText(rowField(row, "rarity", "rarityName", "tier", "category")) or "Unknown",
+        traits = cleanText(rowField(row, "traits", "trait", "attributes", "abilities")) or "No traits",
+        owner = cleanText(rowField(row, "owner", "ownerName", "player", "username", "user")),
+        server_id = cleanText(rawServer),
+        place_id = cleanText(rawPlace),
+        player_count = rowField(row, "player_count", "playerCount", "players"),
+        max_players = rowField(row, "max_players", "maxPlayers"),
+        image_url = rowField(row, "image_url", "imageUrl", "image"),
+        received_at = normalizeTimestamp(rowField(row, "received_at", "receivedAt", "timestamp", "time", "createdAt")),
+        source = detectedSource,
+        external_id = cleanText(rowField(row, "id", "uid", "uuid", "uniqueId")),
+        uid = cleanText(rowField(row, "uid", "uuid", "uniqueId", "id")),
+        index = cleanText(rowField(row, "index", "animalIndex", "itemIndex")),
+        plot = cleanText(rowField(row, "plot", "plot_name", "plotName")),
+        slot = cleanText(rowField(row, "slot", "slot_index", "slotIndex")),
+        fusing = cleanText(rowField(row, "fusing", "fuse", "isFusing")),
     }
+    if normalized.mutation == "" then normalized.mutation = "None" end
+    if normalized.rarity == "" then normalized.rarity = "Unknown" end
+    if normalized.traits == "" then normalized.traits = "No traits" end
     normalized._key = table.concat({
         normalized.source, normalized.external_id, normalized.name, normalized.server_id,
         tostring(normalized.gen_val), normalized.mutation, normalized.traits, normalized.owner,
@@ -557,15 +609,59 @@ listLayout.Parent = list
 
 local cleared = {}
 local lastRows = {}
+local teleportBusy = false
+local teleportNextAt = 0
+local teleportTarget = nil
+local teleportAttempt = 0
 
-local function safeTeleport(placeId, jobId)
+local function cleanId(value)
+    return cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
+        :gsub("^[\"']", ""):gsub("[\"']$", "")
+end
+
+local function rowJobId(b)
+    local id = cleanId(b and (b.server_id or b.serverId or b.jobId))
+    if id == "" or id == tostring(game.JobId) then return nil end
+    return id
+end
+
+local function rowPlaceId(b)
+    local id = tonumber(cleanId(b and (b.place_id or b.placeId)))
+    return (id and id > 0) and id or game.PlaceId
+end
+
+local function requestTeleport(b, reason)
+    local jobId = rowJobId(b)
+    if not jobId then return false, "missing-server" end
+    if teleportBusy or os.clock() < teleportNextAt then return false, "cooldown" end
+
+    local placeId = rowPlaceId(b)
+    teleportBusy = true
+    teleportNextAt = os.clock() + 7
+    teleportTarget = { place_id = placeId, server_id = jobId, row = b, reason = reason or "manual" }
+    teleportAttempt = teleportAttempt + 1
+
+    local attempt = teleportAttempt
     local ok, err = pcall(function()
-        TeleportService:TeleportToPlaceInstance(tonumber(placeId) or game.PlaceId, jobId, LP)
+        TeleportService:TeleportToPlaceInstance(placeId, jobId, LP)
     end)
     if not ok then
-        pcall(function() TeleportService:Teleport(tonumber(placeId) or game.PlaceId, LP) end)
-        warn("[Meowlzz] join fallback:", err)
+        teleportBusy = false
+        teleportNextAt = os.clock() + 1.5
+        warn("[Meowlzz] TeleportToPlaceInstance falhou:", tostring(err))
+        return false, tostring(err)
     end
+    task.delay(8, function()
+        if teleportBusy and teleportAttempt == attempt and gui.Parent then
+            teleportBusy = false
+            teleportNextAt = os.clock() + 0.2
+            if autoForce or autoJoin then
+                local retryRow = teleportTarget and teleportTarget.row
+                if retryRow then requestTeleport(retryRow, "watchdog-retry") end
+            end
+        end
+    end)
+    return true
 end
 
 local function joinButton(parent, b, w, h)
@@ -584,11 +680,11 @@ local function joinButton(parent, b, w, h)
     corner(j, 9)
     goldGradient(j, 90)
     j.MouseButton1Click:Connect(function()
-        if not b.server_id or b.server_id == "" then
-            j.Text = "N/A" task.delay(1.2, function() j.Text = "JOIN" end) return
-        end
-        j.Text = "..."
-        task.spawn(safeTeleport, b.place_id or game.PlaceId, b.server_id)
+        local started, why = requestTeleport(b, "button")
+        j.Text = started and "..." or (why == "missing-server" and "N/A" or "WAIT")
+        task.delay(started and 6 or 1.2, function()
+            if j.Parent then j.Text = "JOIN" end
+        end)
     end)
     return j
 end
@@ -805,30 +901,91 @@ local scannerStatus = "IDLE"
 local dexStatus = "OFFLINE"
 local dexConnecting = false
 
+local function setDexField(row, key, value)
+    local normalizedKey = compactKey(key)
+    value = cleanText(value)
+    if normalizedKey == "name" or normalizedKey == "brainrot" or normalizedKey == "animal" or
+        normalizedKey == "pet" or normalizedKey == "item" or normalizedKey == "itemname" or
+        normalizedKey == "displayname" or normalizedKey == "brainrotname" or normalizedKey == "petname" or
+        normalizedKey == "title" then
+        row.name = value
+    elseif normalizedKey == "value" or normalizedKey == "gen" or normalizedKey == "genval" or
+        normalizedKey == "genvalue" or normalizedKey == "generation" or normalizedKey == "generationvalue" or
+        normalizedKey == "generationpersecond" or normalizedKey == "generationpersec" or
+        normalizedKey == "genpersec" or normalizedKey == "income" or normalizedKey == "money" or
+        normalizedKey == "moneypersecond" or normalizedKey == "valuepersecond" or
+        normalizedKey == "amount" or normalizedKey == "cash" then
+        row.gen = value
+    elseif normalizedKey:find("mutation", 1, true) or normalizedKey == "mut" then
+        row.mutation = value
+    elseif normalizedKey:find("rarity", 1, true) or normalizedKey == "tier" or normalizedKey == "category" then
+        row.rarity = value
+    elseif normalizedKey:find("trait", 1, true) or normalizedKey:find("attribute", 1, true) or
+        normalizedKey == "ability" or normalizedKey == "abilities" then
+        row.traits = value
+    elseif normalizedKey:find("owner", 1, true) or normalizedKey:find("player", 1, true) or
+        normalizedKey == "user" or normalizedKey == "username" then
+        row.owner = value
+    elseif normalizedKey:find("server", 1, true) or normalizedKey:find("job", 1, true) or
+        normalizedKey == "instance" or normalizedKey == "instanceid" then
+        row.server_id = value
+    elseif normalizedKey:find("place", 1, true) or normalizedKey == "gameid" or
+        normalizedKey == "experienceid" then
+        row.place_id = value
+    elseif normalizedKey == "timestamp" or normalizedKey == "time" or normalizedKey == "receivedat" or
+        normalizedKey == "createdat" then
+        row.received_at = value
+    elseif normalizedKey == "fuse" or normalizedKey == "fusing" or normalizedKey == "isfusing" or
+        normalizedKey == "fusion" or normalizedKey == "fusestatus" then
+        row.fusing = value
+    end
+end
+
+local function looksLikeDexValue(value)
+    local text = string.upper(cleanText(value)):gsub("%s+", "")
+    if text == "" then return false end
+    if not text:match("[%d]") then return false end
+    return text:match("^[$%d%.]+[KMBT]?/?S?%+?$") ~= nil or
+        text:match("[%d%.]+[KMBT]/?S") ~= nil
+end
+
 local function parseDexDelimitedMessage(message)
-    local row = {}
+    local row, plain = {}, {}
     for part in tostring(message):gmatch("([^|\n]+)") do
-        local key, value = part:match("^%s*([^:=]+)%s*[:=]%s*(.-)%s*$")
-        if key and value then
-            key = string.lower(key):gsub("[%s_%-]", "")
-            if key == "name" or key == "brainrot" or key == "animal" or key == "pet" or key == "item" then
-                row.name = value
-            elseif key:find("mutation") or key == "mut" then
-                row.mutation = value
-            elseif key:find("rarity") or key == "tier" then
-                row.rarity = value
-            elseif key:find("trait") or key:find("attribute") then
-                row.traits = value
-            elseif key:find("gen") or key == "value" or key == "money" then
-                row.gen = value
-            elseif key:find("owner") or key:find("player") or key == "user" or key == "username" then
-                row.owner = value
-            elseif key:find("server") or key == "job" then
-                row.server_id = value
-            elseif key:find("place") or key == "gameid" then
-                row.place_id = value
+        local clean = cleanText(part):gsub("^%s+", ""):gsub("%s+$", "")
+        if clean ~= "" then
+            local key, value = clean:match("^([^:=]+)%s*[:=]%s*(.-)$")
+            if key and value and cleanText(value) ~= "" then
+                setDexField(row, key, value)
+            else
+                table.insert(plain, clean)
             end
         end
+    end
+
+    if not row.name or row.name == "" then
+        for i, value in ipairs(plain) do
+            if not looksLikeDexValue(value) then
+                row.name = value
+                table.remove(plain, i)
+                break
+            end
+        end
+    end
+    if not row.gen or row.gen == "" then
+        for i, value in ipairs(plain) do
+            if looksLikeDexValue(value) then
+                row.gen = value
+                table.remove(plain, i)
+                break
+            end
+        end
+    end
+    if (not row.mutation or row.mutation == "") and #plain > 0 then
+        row.mutation = table.remove(plain, 1)
+    end
+    if (not row.traits or row.traits == "") and #plain > 0 then
+        row.traits = table.remove(plain, 1)
     end
     return normalizeRow(row, "DEX")
 end
@@ -843,6 +1000,12 @@ local function collectDexRows(node, output, seen, depth)
     for _, child in pairs(node) do
         if type(child) == "table" then
             collectDexRows(child, output, seen, depth + 1)
+        elseif type(child) == "string" then
+            local childRow = parseDexDelimitedMessage(child)
+            if childRow and not seen[childRow._key] then
+                seen[childRow._key] = true
+                table.insert(output, childRow)
+            end
         end
     end
 end
@@ -852,6 +1015,9 @@ local function decodeDexMessage(message)
     local ok, decoded = pcall(HttpService.JSONDecode, HttpService, tostring(message))
     if ok and type(decoded) == "table" then
         collectDexRows(decoded, rows, seen, 0)
+    elseif ok and type(decoded) == "string" then
+        local row = parseDexDelimitedMessage(decoded)
+        if row then table.insert(rows, row) end
     else
         local row = parseDexDelimitedMessage(message)
         if row then table.insert(rows, row) end
@@ -915,12 +1081,14 @@ local function acceptDexMessage(message)
     local rows = decodeDexMessage(message)
     if #rows == 0 then
         dexStatus = "NO DATA"
+        pcall(function() print("[Meowlzz Dex] mensagem recebida sem registro reconhecível") end)
         if statusLbl then renderCombinedRows() end
         return
     end
+    local arrivalStamp = os.date("!%Y-%m-%dT%H:%M:%S")
     for _, row in ipairs(rows) do
-        if not row.received_at then
-            row.received_at = os.date("!%Y-%m-%dT%H:%M:%S")
+        if not row.received_at or not receivedTimestamp(row.received_at) then
+            row.received_at = arrivalStamp
         end
         local index = dexIndex[row._key]
         if index then
@@ -935,17 +1103,15 @@ local function acceptDexMessage(message)
 end
 
 local function startDexSocket()
-    local connectFn
-    pcall(function()
-        if WebSocket then connectFn = WebSocket.connect end
-    end)
-    if dexConnecting or type(connectFn) ~= "function" then
+    local hasWebSocket = false
+    pcall(function() hasWebSocket = WebSocket and type(WebSocket.connect) == "function" end)
+    if dexConnecting or not hasWebSocket then
         dexStatus = "NO WS"
         if statusLbl then renderCombinedRows() end
         return
     end
     dexConnecting = true
-    local ok, ws = pcall(connectFn, DEX_WS_URL)
+    local ok, ws = pcall(function() return WebSocket.connect(DEX_WS_URL) end)
     dexConnecting = false
     if not ok or not ws then
         dexStatus = "CONNECT ERROR"
@@ -1075,41 +1241,60 @@ local function bestRow()
     return nil
 end
 
--- teleport falhou? tenta de novo na hora
-TeleportService.TeleportInitFailed:Connect(function(_, _, msg)
+-- Se o Roblox rejeitar o destino, libera o alvo e agenda uma nova tentativa.
+local function retryTeleportAfterFailure(message)
+    teleportBusy = false
+    teleportNextAt = os.clock() + (autoForce and 0.35 or 1.2)
+    warn("[Meowlzz] teleport falhou:", tostring(message or "unknown"))
     if autoForce or autoJoin then
-        task.wait(autoForce and 0.2 or 1.5)
-        local b = bestRow()
-        if b then pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id) end
+        task.delay(autoForce and 0.4 or 1.3, function()
+            if not gui.Parent then return end
+            local b = (teleportTarget and teleportTarget.row) or bestRow()
+            if b then requestTeleport(b, autoForce and "auto-force-retry" or "auto-join-retry") end
+        end)
     end
+end
+
+pcall(function()
+    TeleportService.TeleportInitFailed:Connect(function(_, result, message)
+        retryTeleportAfterFailure(message or result)
+    end)
 end)
 
--- AUTO JOINER: fica tentando entrar no servidor da melhor log
+-- Libera o bloqueio quando o Roblox muda o estado do teleporte.
+pcall(function()
+    LP.OnTeleport:Connect(function(state)
+        local stateName = tostring(state)
+        if stateName:find("Failed") or stateName:find("Cancelled") then
+            retryTeleportAfterFailure(stateName)
+        elseif stateName:find("Started") or stateName:find("InProgress") then
+            teleportBusy = true
+        end
+    end)
+end)
+
+-- AUTO JOINER: tenta entrar no melhor servidor recente, sem disparar chamadas simultâneas.
 task.spawn(function()
     while gui.Parent do
-        if autoJoin and not autoForce then
+        if autoJoin and not autoForce and not teleportBusy then
             local b = bestRow()
-            if b then pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id) end
-            task.wait(5)
+            if b then requestTeleport(b, "auto-join") end
+            task.wait(2)
         else
-            task.wait(0.5)
+            task.wait(0.35)
         end
     end
 end)
 
--- AUTO FORCE: forca entrada instantaneamente ate ir
+-- AUTO FORCE: repete o melhor destino até o Roblox aceitar o teleporte.
 task.spawn(function()
     while gui.Parent do
-        if autoForce then
+        if autoForce and not teleportBusy then
             local b = bestRow()
-            if b then
-                pcall(safeTeleport, b.place_id or game.PlaceId, b.server_id)
-                task.wait(0.35)
-            else
-                task.wait(0.35)
-            end
+            if b then requestTeleport(b, "auto-force") end
+            task.wait(0.8)
         else
-            task.wait(0.4)
+            task.wait(0.35)
         end
     end
 end)
