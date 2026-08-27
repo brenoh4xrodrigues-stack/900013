@@ -217,6 +217,25 @@ local function displayTraits(b)
     return clipText(b.traits or b.trait or "No traits", 58)
 end
 
+local function looksLikeDexJobToken(value)
+    local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
+    if text:match("^[%x]+%-%x+%-%x+%-%x+%-%x+$") then return true end
+    return #text >= 16 and text:match("^[%w_%-]+$") ~= nil and text:match("[%d_%-]") ~= nil
+end
+
+local function looksLikeDexPlayerToken(value)
+    local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
+    return text:match("^%d+%s*/%s*%d+$") ~= nil or text:match("^%d+%s+of%s+%d+$") ~= nil
+end
+
+local function parseDexPlayerToken(value)
+    local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
+    local count, max = text:match("^(%d+)%s*/%s*(%d+)$")
+    if not count then count, max = text:match("^(%d+)%s+of%s+(%d+)$") end
+    if count then return tonumber(count), tonumber(max) end
+    return tonumber(text), nil
+end
+
 local function isFusing(b)
     local value = b.fusing or b.fuse or b.isFusing
     if type(value) == "boolean" then return value end
@@ -258,6 +277,20 @@ end
 
 local function normalizeRow(row, source)
     if type(row) ~= "table" then return nil end
+    local misplacedMutation = cleanText(rowField(row, "mutation", "mut"))
+    local misplacedTraits = cleanText(rowField(row, "traits", "trait", "attributes", "abilities"))
+    if not row.player_count or row.player_count == "" then
+        local count, max = parseDexPlayerToken(misplacedMutation)
+        if count and count >= 0 and count <= 1000 then
+            row.player_count = count
+            row.max_players = row.max_players or max
+            row.mutation = "None"
+        end
+    end
+    if (not row.server_id or cleanText(row.server_id) == "") and looksLikeDexJobToken(misplacedTraits) then
+        row.server_id = misplacedTraits
+        row.traits = "No traits"
+    end
     local name = cleanText(rowField(row, "name", "brainrot", "animal", "pet", "itemName", "item",
         "displayName", "brainrotName", "petName", "title"))
     local value = parseValue(rowField(row, "gen_val", "genVal", "generationValue", "generation",
@@ -288,8 +321,8 @@ local function normalizeRow(row, source)
         owner = cleanText(rowField(row, "owner", "ownerName", "player", "username", "user")),
         server_id = cleanText(rawServer),
         place_id = cleanText(rawPlace),
-        player_count = rowField(row, "player_count", "playerCount", "players"),
-        max_players = rowField(row, "max_players", "maxPlayers"),
+        player_count = row.player_count or rowField(row, "player_count", "playerCount", "players"),
+        max_players = row.max_players or rowField(row, "max_players", "maxPlayers"),
         image_url = rowField(row, "image_url", "imageUrl", "image"),
         received_at = normalizeTimestamp(rowField(row, "received_at", "receivedAt", "timestamp", "time", "createdAt")),
         source = detectedSource,
@@ -713,7 +746,11 @@ end
 
 local function rowJobId(b)
     local id = cleanId(b and (b.server_id or b.serverId or b.jobId))
-    if id == "" or id == tostring(game.JobId) then return nil end
+    local lowered = string.lower(id)
+    if id == "" or id == tostring(game.JobId) or lowered == "none" or lowered == "nil" or
+        lowered == "n/a" or lowered == "unavailable" or lowered == "not received" then
+        return nil
+    end
     return id
 end
 
@@ -993,6 +1030,27 @@ local scannerStatus = "IDLE"
 local dexStatus = "OFFLINE"
 local dexConnecting = false
 
+local function parseDexPlayers(value)
+    local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
+    local count, max = text:match("^(%d+)%s*/%s*(%d+)$")
+    if not count then count, max = text:match("^(%d+)%s+of%s+(%d+)$") end
+    if count then return tonumber(count), tonumber(max) end
+    local only = tonumber(text)
+    return only, nil
+end
+
+local function looksLikeDexJobId(value)
+    local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
+    if text:match("^[%x]+%-%x+%-%x+%-%x+%-%x+$") then return true end
+    return #text >= 16 and text:match("^[%w_%-]+$") ~= nil
+end
+
+local function looksLikeDexPlayers(value)
+    local text = cleanText(value)
+    return text:match("^%s*%d+%s*/%s*%d+%s*$") ~= nil or
+        text:match("^%s*%d+%s+of%s+%d+%s*$") ~= nil
+end
+
 local function setDexField(row, key, value)
     local normalizedKey = compactKey(key)
     value = cleanText(value)
@@ -1015,7 +1073,13 @@ local function setDexField(row, key, value)
     elseif normalizedKey:find("trait", 1, true) or normalizedKey:find("attribute", 1, true) or
         normalizedKey == "ability" or normalizedKey == "abilities" then
         row.traits = value
-    elseif normalizedKey:find("owner", 1, true) or normalizedKey:find("player", 1, true) or
+    elseif normalizedKey == "players" or normalizedKey == "playercount" or
+        normalizedKey == "serverplayers" or normalizedKey == "onlineplayers" or
+        normalizedKey == "currentplayers" then
+        local count, max = parseDexPlayers(value)
+        row.player_count = count
+        row.max_players = max
+    elseif normalizedKey:find("owner", 1, true) or normalizedKey == "player" or
         normalizedKey == "user" or normalizedKey == "username" then
         row.owner = value
     elseif normalizedKey:find("server", 1, true) or normalizedKey:find("job", 1, true) or
@@ -1073,10 +1137,26 @@ local function parseDexDelimitedMessage(message)
             end
         end
     end
-    if (not row.mutation or row.mutation == "") and #plain > 0 then
+
+    for i = #plain, 1, -1 do
+        local value = plain[i]
+        if looksLikeDexJobId(value) and (not row.server_id or row.server_id == "") then
+            row.server_id = value
+            table.remove(plain, i)
+        elseif looksLikeDexPlayers(value) and row.player_count == nil then
+            local count, max = parseDexPlayers(value)
+            row.player_count = count
+            row.max_players = max
+            table.remove(plain, i)
+        end
+    end
+
+    if (not row.mutation or row.mutation == "") and plain[1] and
+        not looksLikeDexJobId(plain[1]) and not looksLikeDexPlayers(plain[1]) then
         row.mutation = table.remove(plain, 1)
     end
-    if (not row.traits or row.traits == "") and #plain > 0 then
+    if (not row.traits or row.traits == "") and plain[1] and
+        not looksLikeDexJobId(plain[1]) and not looksLikeDexPlayers(plain[1]) then
         row.traits = table.remove(plain, 1)
     end
     return normalizeRow(row, "DEX")
