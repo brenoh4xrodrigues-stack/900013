@@ -550,9 +550,10 @@ local function makeTab(id, label)
     return pages[id]
 end
 
-local pLogs   = makeTab("logs",   "LOGS")
-local pConfig = makeTab("config", "CONFIG")
-local pUsers  = makeTab("users",  "USERS")
+local pLogs    = makeTab("logs",    "LOGS")
+local pConfig  = makeTab("config",  "CONFIG")
+local pUsers   = makeTab("users",   "USERS")
+local pUpdates = makeTab("updates", "UPDATES")
 
 local railFoot = Instance.new("TextLabel")
 railFoot.LayoutOrder = 99
@@ -563,6 +564,240 @@ railFoot.Text = "MEOWLZZ\nHUB"
 railFoot.TextSize = 8
 railFoot.TextColor3 = DIM
 railFoot.Parent = rail
+
+-- ===== updates page: status real do Finder + feed público e seguro =====
+local updateState = { api = false, dex = false, ui = true }
+local updateProgress = 10
+local updateProgressFill
+local updateProgressText
+local updateStatusText
+local updateStatusDetail
+local updateAnimation
+local lastUpdateStatus
+
+local UPDATE_FEED = {
+    { state = "LIVE", title = "Finder stability", detail = "Interface and recent logs online", progress = 100 },
+    { state = "FIXING", title = "Server joining", detail = "Improving server entry", progress = 70 },
+    { state = "COMING SOON", title = "Add new VPS", detail = "Infrastructure expansion", progress = 10 },
+    { state = "COMING SOON", title = "New notification source", detail = "Coverage expansion", progress = 10 },
+}
+
+local updatesScroll = Instance.new("ScrollingFrame")
+updatesScroll.Size = UDim2.new(1, 0, 1, 0)
+updatesScroll.BackgroundTransparency = 1
+updatesScroll.BorderSizePixel = 0
+updatesScroll.ScrollBarThickness = 3
+updatesScroll.ScrollBarImageColor3 = GOLD
+updatesScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+updatesScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+updatesScroll.Parent = pUpdates
+local updatesLayout = Instance.new("UIListLayout")
+updatesLayout.Padding = UDim.new(0, 8)
+updatesLayout.Parent = updatesScroll
+
+local updateOverview = Instance.new("Frame")
+updateOverview.Size = UDim2.new(1, -6, 0, 98)
+updateOverview.BackgroundColor3 = BG2
+updateOverview.BackgroundTransparency = 0.18
+updateOverview.BorderSizePixel = 0
+updateOverview.Parent = updatesScroll
+corner(updateOverview, 12) stroke(updateOverview, GOLD, 0.55)
+
+local updateTitle = Instance.new("TextLabel")
+updateTitle.BackgroundTransparency = 1
+updateTitle.Position = UDim2.new(0, 12, 0, 9)
+updateTitle.Size = UDim2.new(1, -24, 0, 15)
+updateTitle.Font = Enum.Font.GothamBold
+updateTitle.Text = "SYSTEM STATUS"
+updateTitle.TextSize = 10
+updateTitle.TextColor3 = GOLD
+updateTitle.TextXAlignment = Enum.TextXAlignment.Left
+updateTitle.Parent = updateOverview
+
+updateProgressText = Instance.new("TextLabel")
+updateProgressText.BackgroundTransparency = 1
+updateProgressText.Position = UDim2.new(1, -58, 0, 8)
+updateProgressText.Size = UDim2.new(0, 46, 0, 16)
+updateProgressText.Font = Enum.Font.GothamBold
+updateProgressText.Text = "10%"
+updateProgressText.TextSize = 12
+updateProgressText.TextColor3 = GOLD_SOFT
+updateProgressText.TextXAlignment = Enum.TextXAlignment.Right
+updateProgressText.Parent = updateOverview
+
+updateStatusText = Instance.new("TextLabel")
+updateStatusText.BackgroundTransparency = 1
+updateStatusText.Position = UDim2.new(0, 12, 0, 29)
+updateStatusText.Size = UDim2.new(1, -24, 0, 14)
+updateStatusText.Font = Enum.Font.GothamMedium
+updateStatusText.Text = "Starting Finder"
+updateStatusText.TextSize = 9
+updateStatusText.TextColor3 = TXT
+updateStatusText.TextXAlignment = Enum.TextXAlignment.Left
+updateStatusText.Parent = updateOverview
+
+local updateTrack = Instance.new("Frame")
+updateTrack.Position = UDim2.new(0, 12, 0, 51)
+updateTrack.Size = UDim2.new(1, -24, 0, 10)
+updateTrack.BackgroundColor3 = BG3
+updateTrack.BorderSizePixel = 0
+updateTrack.ClipsDescendants = true
+updateTrack.Parent = updateOverview
+corner(updateTrack, 5)
+
+updateProgressFill = Instance.new("Frame")
+updateProgressFill.Size = UDim2.new(0.1, 0, 1, 0)
+updateProgressFill.BackgroundColor3 = GOLD
+updateProgressFill.BorderSizePixel = 0
+updateProgressFill.Parent = updateTrack
+corner(updateProgressFill, 5)
+goldGradient(updateProgressFill, 0)
+
+updateStatusDetail = Instance.new("TextLabel")
+updateStatusDetail.BackgroundTransparency = 1
+updateStatusDetail.Position = UDim2.new(0, 12, 0, 68)
+updateStatusDetail.Size = UDim2.new(1, -24, 0, 16)
+updateStatusDetail.Font = Enum.Font.Gotham
+updateStatusDetail.Text = "UI ready • waiting for sources"
+updateStatusDetail.TextSize = 8
+updateStatusDetail.TextColor3 = DIM
+updateStatusDetail.TextXAlignment = Enum.TextXAlignment.Left
+updateStatusDetail.Parent = updateOverview
+
+local updatesList = Instance.new("Frame")
+updatesList.Size = UDim2.new(1, -6, 0, 0)
+updatesList.AutomaticSize = Enum.AutomaticSize.Y
+updatesList.BackgroundTransparency = 1
+updatesList.BorderSizePixel = 0
+updatesList.Parent = updatesScroll
+local updatesListLayout = Instance.new("UIListLayout")
+updatesListLayout.Padding = UDim.new(0, 6)
+updatesListLayout.Parent = updatesList
+
+local function publicUpdateText(value, maxLen)
+    local text = cleanText(value)
+    text = text:gsub("https?://%S+", "[hidden]")
+    text = text:gsub("[%w_%-]+%.[%w_%-]+%.[%w_%-]+", "[hidden]")
+    text = text:gsub("[Kk][Ee][Yy]%s*[:=]%s*[^%s]+", "key hidden")
+    text = text:gsub("[Tt][Oo][Kk][Ee][Nn]%s*[:=]%s*[^%s]+", "token hidden")
+    return clipText(text, maxLen or 48)
+end
+
+local function renderUpdates()
+    for _, child in ipairs(updatesList:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    for _, item in ipairs(UPDATE_FEED) do
+        local card = Instance.new("Frame")
+        card.Size = UDim2.new(1, 0, 0, 58)
+        card.BackgroundColor3 = BG2
+        card.BackgroundTransparency = 0.24
+        card.BorderSizePixel = 0
+        card.Parent = updatesList
+        corner(card, 11) stroke(card, GOLD, 0.72)
+
+        local state = Instance.new("TextLabel")
+        state.BackgroundTransparency = 1
+        state.Position = UDim2.new(0, 11, 0, 8)
+        state.Size = UDim2.new(0, 82, 0, 13)
+        state.Font = Enum.Font.GothamBold
+        state.Text = publicUpdateText(item.state, 18)
+        state.TextSize = 8
+        state.TextColor3 = item.state == "FIXING" and Color3.fromRGB(255, 190, 100) or GOLD
+        state.TextXAlignment = Enum.TextXAlignment.Left
+        state.Parent = card
+
+        local title = Instance.new("TextLabel")
+        title.BackgroundTransparency = 1
+        title.Position = UDim2.new(0, 11, 0, 23)
+        title.Size = UDim2.new(1, -22, 0, 14)
+        title.Font = Enum.Font.GothamBold
+        title.Text = publicUpdateText(item.title, 42)
+        title.TextSize = 10
+        title.TextColor3 = GOLD_SOFT
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.TextTruncate = Enum.TextTruncate.AtEnd
+        title.Parent = card
+
+        local detail = Instance.new("TextLabel")
+        detail.BackgroundTransparency = 1
+        detail.Position = UDim2.new(0, 11, 0, 39)
+        detail.Size = UDim2.new(1, -82, 0, 12)
+        detail.Font = Enum.Font.Gotham
+        detail.Text = publicUpdateText(item.detail, 42)
+        detail.TextSize = 8
+        detail.TextColor3 = DIM
+        detail.TextXAlignment = Enum.TextXAlignment.Left
+        detail.TextTruncate = Enum.TextTruncate.AtEnd
+        detail.Parent = card
+
+        local pct = Instance.new("TextLabel")
+        pct.BackgroundTransparency = 1
+        pct.Position = UDim2.new(1, -60, 0, 21)
+        pct.Size = UDim2.new(0, 48, 0, 16)
+        pct.Font = Enum.Font.GothamBold
+        pct.Text = tostring(tonumber(item.progress) or 10) .. "%"
+        pct.TextSize = 10
+        pct.TextColor3 = TXT
+        pct.TextXAlignment = Enum.TextXAlignment.Right
+        pct.Parent = card
+    end
+end
+
+local function addPublicUpdate(state, title, detail, progress)
+    local allowedState = ({ LIVE = true, FIXING = true, ["COMING SOON"] = true })[state] and state or "FIXING"
+    table.insert(UPDATE_FEED, 1, {
+        state = allowedState,
+        title = publicUpdateText(title or "Finder update", 42),
+        detail = publicUpdateText(detail or "Public status only", 42),
+        progress = math.max(10, math.min(100, tonumber(progress) or 10)),
+    })
+    while #UPDATE_FEED > 8 do table.remove(UPDATE_FEED) end
+    renderUpdates()
+end
+
+local function animateUpdateProgress(target, status, detail)
+    target = tonumber(target) or 10
+    if target < 10 then target = 10 end
+    if target > 100 then target = 100 end
+    updateProgress = target
+    updateProgressText.Text = tostring(math.floor(target)) .. "%"
+    updateStatusText.Text = publicUpdateText(status or "Updating Finder", 52)
+    updateStatusDetail.Text = publicUpdateText(detail or "Public status only", 58)
+    if updateAnimation then pcall(function() updateAnimation:Cancel() end) end
+    updateAnimation = TweenService:Create(updateProgressFill, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(target / 100, 0, 1, 0),
+    })
+    updateAnimation:Play()
+end
+
+local function setUpdateState(source, online)
+    updateState[source] = online and true or false
+    local progress = 10
+    if updateState.api then progress = progress + 45 end
+    if updateState.dex then progress = progress + 35 end
+    if updateState.ui then progress = progress + 10 end
+    local status = "Waiting for sources"
+    if updateState.api and updateState.dex then
+        status = "Finder online"
+    elseif updateState.api then
+        status = "API online • waiting for Dex"
+    elseif updateState.dex then
+        status = "Dex online • waiting for API"
+    elseif source == "api" then
+        status = "Updating API connection"
+    elseif source == "dex" then
+        status = "Connecting notification source"
+    end
+    local detail = "Public progress • no internal details"
+    if lastUpdateStatus ~= tostring(progress) .. "|" .. status then
+        lastUpdateStatus = tostring(progress) .. "|" .. status
+        animateUpdateProgress(progress, status, detail)
+    end
+end
+
+renderUpdates()
+setUpdateState("ui", true)
 
 -- ===== logs page =====
 local quickBar = Instance.new("Frame")
@@ -1107,6 +1342,7 @@ local function startDexSocket()
     pcall(function() hasWebSocket = WebSocket and type(WebSocket.connect) == "function" end)
     if dexConnecting or not hasWebSocket then
         dexStatus = "NO WS"
+        setUpdateState("dex", false)
         if statusLbl then renderCombinedRows() end
         return
     end
@@ -1115,20 +1351,24 @@ local function startDexSocket()
     dexConnecting = false
     if not ok or not ws then
         dexStatus = "CONNECT ERROR"
+        setUpdateState("dex", false)
         if statusLbl then renderCombinedRows() end
         task.delay(DEX_RECONNECT_DELAY, startDexSocket)
         return
     end
     dexStatus = "CONNECTED"
+    setUpdateState("dex", true)
     if statusLbl then renderCombinedRows() end
     pcall(function()
         ws.OnMessage:Connect(function(message)
+            setUpdateState("dex", true)
             pcall(acceptDexMessage, message)
         end)
     end)
     pcall(function()
         ws.OnClose:Connect(function()
             dexStatus = "CLOSED"
+            setUpdateState("dex", false)
             if gui.Parent then
                 task.delay(DEX_RECONNECT_DELAY, startDexSocket)
             end
@@ -1140,23 +1380,27 @@ local function refresh()
     local raw, httpStatus = httpGet(API_URL(threshold()))
     if not raw then
         scannerStatus = httpStatus and ("HTTP " .. tostring(httpStatus)) or "OFFLINE"
+        setUpdateState("api", false)
         renderCombinedRows()
         return
     end
     local ok, data = pcall(HttpService.JSONDecode, HttpService, raw)
     if not ok or type(data) ~= "table" then
-        scannerStatus = "JSON ERROR"
+        scannerStatus = "INVALID"
+        setUpdateState("api", false)
         renderCombinedRows()
         return
     end
     if data.error then
-        scannerStatus = "API ERROR"
+        scannerStatus = "ERROR"
+        setUpdateState("api", false)
         renderCombinedRows()
         return
     end
     local rows = data.data or data.servers or data.results or {}
     if type(rows) ~= "table" then
         scannerStatus = "DATA ERROR"
+        setUpdateState("api", false)
         renderCombinedRows()
         return
     end
@@ -1167,6 +1411,7 @@ local function refresh()
         if normalized then table.insert(scannerRows, normalized) end
     end
     scannerStatus = "OK"
+    setUpdateState("api", true)
     renderCombinedRows()
 end
 
