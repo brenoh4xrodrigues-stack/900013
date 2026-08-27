@@ -19,6 +19,7 @@ if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Playe
 -- O valor precisa corresponder ao SCANNER_API_KEY configurado no servidor.
 -- A chave é enviada na URL porque game:HttpGet não envia headers customizados.
 local API_BASE = "https://meowlzz-soft-notify-production.up.railway.app/api/public/best"
+local DEX_RECEIVE_URL = "https://meowlzz-soft-notify-production.up.railway.app/api/public/dex-receive"
 local local_KeyScanner = "Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
 local function API_URL(minGen)
     return API_BASE .. "?key=" .. HttpService:UrlEncode(local_KeyScanner) ..
@@ -1168,6 +1169,38 @@ local function renderCombinedRows()
     end
 end
 
+local function forwardDexRows(rows)
+    local payloadRows = {}
+    for _, row in ipairs(rows) do
+        if row and row.name and tonumber(row.gen_val) and tonumber(row.gen_val) > 0 then
+            table.insert(payloadRows, {
+                name = tostring(row.name),
+                gen_val = tonumber(row.gen_val),
+                gen = row.gen,
+                mutation = row.mutation,
+                rarity = row.rarity,
+                traits = row.traits,
+                owner = row.owner,
+                server_id = row.server_id,
+                place_id = (row.place_id and tostring(row.place_id) ~= "" and row.place_id) or tostring(game.PlaceId),
+                player_count = row.player_count,
+                max_players = row.max_players,
+                image_url = row.image_url,
+                external_id = row.external_id,
+                fusing = row.fusing,
+            })
+        end
+    end
+    if #payloadRows == 0 then return end
+    task.spawn(function()
+        local url = DEX_RECEIVE_URL .. "?key=" .. HttpService:UrlEncode(local_KeyScanner)
+        local response = httpPostJSON(url, { rows = payloadRows })
+        if response and response.ok == false then
+            warn("[Meowlzz Dex] relay recusado:", tostring(response.error or "unknown"))
+        end
+    end)
+end
+
 local function acceptDexMessage(message)
     local rows = decodeDexMessage(message)
     if #rows == 0 then
@@ -1189,6 +1222,7 @@ local function acceptDexMessage(message)
             dexIndex[row._key] = #dexRows
         end
     end
+    forwardDexRows(rows)
     dexStatus = "OK"
     renderCombinedRows()
 end
