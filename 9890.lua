@@ -1340,7 +1340,19 @@ local function forwardDexRows(rows)
 end
 
 local function acceptDexMessage(message)
+    pcall(function()
+        print("[Meowlzz Dex][RAW]", tostring(message))
+    end)
     local rows = decodeDexMessage(message)
+    pcall(function()
+        print("[Meowlzz Dex][DECODED] rows=", tostring(#rows))
+        for i, row in ipairs(rows) do
+            print("[Meowlzz Dex][ROW]", tostring(i), "name=", tostring(row.name),
+                "job_id=", tostring(row.job_id), "server_id=", tostring(row.server_id),
+                "instance=", tostring(row.game_instance_id), "place_id=", tostring(row.place_id),
+                "players=", tostring(row.player_count) .. "/" .. tostring(row.max_players))
+        end
+    end)
     if #rows == 0 then
         dexStatus = "NO DATA"
         pcall(function() print("[Meowlzz Dex] mensagem recebida sem registro reconhecível") end)
