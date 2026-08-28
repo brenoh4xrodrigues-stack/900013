@@ -299,9 +299,11 @@ local function normalizeRow(row, source)
     if name == "" or value <= 0 then return nil end
 
     local rawServer = rowField(row, "server_id", "serverId", "server", "jobId", "job_id", "job",
-        "gameJobId", "instanceId", "instance")
+        "gameJobId", "gameInstanceId", "game_instance_id", "serverInstanceId", "server_instance_id",
+        "instanceId", "instance_id", "instance")
     if type(rawServer) == "table" then
-        rawServer = rowField(rawServer, "id", "value", "server_id", "serverId", "jobId", "job_id", "job")
+        rawServer = rowField(rawServer, "id", "value", "server_id", "serverId", "jobId", "job_id", "job",
+            "gameInstanceId", "game_instance_id", "instanceId", "instance_id")
     end
     local rawPlace = rowField(row, "place_id", "placeId", "place", "gameId", "game_id", "experienceId")
     if type(rawPlace) == "table" then
@@ -310,6 +312,9 @@ local function normalizeRow(row, source)
     local detectedSource = cleanText(rowField(row, "source", "sourceType"))
     if detectedSource == "" then detectedSource = source or "SCANNER" end
 
+    if (not rawServer or cleanText(rawServer) == "") and looksLikeDexJobToken(cleanText(row.external_id)) then
+        rawServer = row.external_id
+    end
     local normalized = {
         name = name,
         gen_val = value,
@@ -320,6 +325,7 @@ local function normalizeRow(row, source)
         traits = cleanText(rowField(row, "traits", "trait", "attributes", "abilities")) or "No traits",
         owner = cleanText(rowField(row, "owner", "ownerName", "player", "username", "user")),
         server_id = cleanText(rawServer),
+        game_instance_id = cleanText(rowField(row, "gameInstanceId", "game_instance_id", "instanceId", "instance_id")),
         place_id = cleanText(rawPlace),
         player_count = row.player_count or rowField(row, "player_count", "playerCount", "players"),
         max_players = row.max_players or rowField(row, "max_players", "maxPlayers"),
@@ -745,13 +751,20 @@ local function cleanId(value)
 end
 
 local function rowJobId(b)
-    local id = cleanId(b and (b.server_id or b.serverId or b.jobId))
-    local lowered = string.lower(id)
-    if id == "" or id == tostring(game.JobId) or lowered == "none" or lowered == "nil" or
-        lowered == "n/a" or lowered == "unavailable" or lowered == "not received" then
-        return nil
+    if type(b) ~= "table" then return nil end
+    local candidates = {
+        b.server_id, b.serverId, b.jobId, b.job_id,
+        b.gameInstanceId, b.game_instance_id, b.instanceId, b.instance_id,
+    }
+    for _, candidate in ipairs(candidates) do
+        local id = cleanId(candidate)
+        local lowered = string.lower(id)
+        if id ~= "" and id ~= tostring(game.JobId) and lowered ~= "none" and lowered ~= "nil" and
+            lowered ~= "n/a" and lowered ~= "unavailable" and lowered ~= "not received" then
+            return id
+        end
     end
-    return id
+    return nil
 end
 
 local function rowPlaceId(b)
@@ -1083,7 +1096,8 @@ local function setDexField(row, key, value)
         normalizedKey == "user" or normalizedKey == "username" then
         row.owner = value
     elseif normalizedKey:find("server", 1, true) or normalizedKey:find("job", 1, true) or
-        normalizedKey == "instance" or normalizedKey == "instanceid" then
+        normalizedKey == "instance" or normalizedKey == "instanceid" or
+        normalizedKey == "gameinstanceid" or normalizedKey == "serverinstanceid" then
         row.server_id = value
     elseif normalizedKey:find("place", 1, true) or normalizedKey == "gameid" or
         normalizedKey == "experienceid" then
@@ -1261,7 +1275,7 @@ local function forwardDexRows(rows)
                 rarity = row.rarity,
                 traits = row.traits,
                 owner = row.owner,
-                server_id = row.server_id,
+                server_id = rowJobId(row),
                 place_id = (row.place_id and tostring(row.place_id) ~= "" and row.place_id) or tostring(game.PlaceId),
                 player_count = row.player_count,
                 max_players = row.max_players,
