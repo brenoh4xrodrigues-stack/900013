@@ -275,6 +275,16 @@ local function parseValue(v)
     return number * multiplier
 end
 
+local function usableJobText(value)
+    local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
+    local lowered = string.lower(text)
+    if text == "" or lowered == "none" or lowered == "nil" or lowered == "n/a" or
+        lowered == "unavailable" or lowered == "not received" then
+        return ""
+    end
+    return text
+end
+
 local function normalizeRow(row, source)
     if type(row) ~= "table" then return nil end
     local misplacedMutation = cleanText(rowField(row, "mutation", "mut"))
@@ -312,8 +322,11 @@ local function normalizeRow(row, source)
     local detectedSource = cleanText(rowField(row, "source", "sourceType"))
     if detectedSource == "" then detectedSource = source or "SCANNER" end
 
-    if (not rawServer or cleanText(rawServer) == "") and looksLikeDexJobToken(cleanText(row.external_id)) then
-        rawServer = row.external_id
+    local serverText = usableJobText(rawServer)
+    local instanceText = usableJobText(rowField(row, "gameInstanceId", "game_instance_id", "instanceId", "instance_id"))
+    if serverText == "" then serverText = instanceText end
+    if serverText == "" and looksLikeDexJobToken(cleanText(row.external_id)) then
+        serverText = cleanText(row.external_id)
     end
     local normalized = {
         name = name,
@@ -324,8 +337,9 @@ local function normalizeRow(row, source)
         rarity = cleanText(rowField(row, "rarity", "rarityName", "tier", "category")) or "Unknown",
         traits = cleanText(rowField(row, "traits", "trait", "attributes", "abilities")) or "No traits",
         owner = cleanText(rowField(row, "owner", "ownerName", "player", "username", "user")),
-        server_id = cleanText(rawServer),
-        game_instance_id = cleanText(rowField(row, "gameInstanceId", "game_instance_id", "instanceId", "instance_id")),
+        server_id = serverText,
+        job_id = serverText,
+        game_instance_id = instanceText,
         place_id = cleanText(rawPlace),
         player_count = row.player_count or rowField(row, "player_count", "playerCount", "players"),
         max_players = row.max_players or rowField(row, "max_players", "maxPlayers"),
@@ -343,7 +357,7 @@ local function normalizeRow(row, source)
     if normalized.rarity == "" then normalized.rarity = "Unknown" end
     if normalized.traits == "" then normalized.traits = "No traits" end
     normalized._key = table.concat({
-        normalized.source, normalized.external_id, normalized.name, normalized.server_id,
+        normalized.source, normalized.external_id, normalized.name, normalized.job_id,
         tostring(normalized.gen_val), normalized.mutation, normalized.traits, normalized.owner,
     }, "|")
     return normalized
@@ -753,7 +767,7 @@ end
 local function rowJobId(b)
     if type(b) ~= "table" then return nil end
     local candidates = {
-        b.server_id, b.serverId, b.jobId, b.job_id,
+        b.job_id, b.server_id, b.serverId, b.jobId,
         b.gameInstanceId, b.game_instance_id, b.instanceId, b.instance_id,
     }
     for _, candidate in ipairs(candidates) do
@@ -1275,7 +1289,8 @@ local function forwardDexRows(rows)
                 rarity = row.rarity,
                 traits = row.traits,
                 owner = row.owner,
-                server_id = rowJobId(row),
+                        server_id = rowJobId(row),
+                job_id = rowJobId(row),
                 place_id = (row.place_id and tostring(row.place_id) ~= "" and row.place_id) or tostring(game.PlaceId),
                 player_count = row.player_count,
                 max_players = row.max_players,
@@ -1454,8 +1469,8 @@ end)
 
 local function bestRow()
     for _, b in ipairs(lastRows) do
-        local sid = tostring(b.server_id or "")
-        if sid ~= "" and sid ~= tostring(game.JobId) then return b end
+        local sid = rowJobId(b)
+        if sid then return b end
     end
     return nil
 end
