@@ -285,6 +285,28 @@ local function usableJobText(value)
     return text
 end
 
+local function findDexJobId(node, depth)
+    if type(node) ~= "table" or (depth or 0) > 6 then return "" end
+    for key, value in pairs(node) do
+        local keyName = compactKey(key)
+        local isJobKey = keyName == "jobid" or keyName == "job" or keyName == "serverid" or
+            keyName == "gameinstanceid" or keyName == "instanceid" or keyName == "serverinstanceid"
+        if isJobKey then
+            if type(value) == "table" then
+                local nested = findDexJobId(value, (depth or 0) + 1)
+                if nested ~= "" then return nested end
+            else
+                local candidate = usableJobText(value)
+                if looksLikeDexJobToken(candidate) then return candidate end
+            end
+        elseif type(value) == "table" then
+            local nested = findDexJobId(value, (depth or 0) + 1)
+            if nested ~= "" then return nested end
+        end
+    end
+    return ""
+end
+
 local function normalizeRow(row, source)
     if type(row) ~= "table" then return nil end
     local misplacedMutation = cleanText(rowField(row, "mutation", "mut"))
@@ -325,6 +347,10 @@ local function normalizeRow(row, source)
     local serverText = usableJobText(rawServer)
     local instanceText = usableJobText(rowField(row, "gameInstanceId", "game_instance_id", "instanceId", "instance_id"))
     if serverText == "" then serverText = instanceText end
+    if source == "DEX" then
+        local nestedJobId = findDexJobId(row, 0)
+        if nestedJobId ~= "" then serverText = nestedJobId end
+    end
     if serverText == "" and looksLikeDexJobToken(cleanText(row.external_id)) then
         serverText = cleanText(row.external_id)
     end
@@ -1228,9 +1254,12 @@ end
 local function renderCombinedRows()
     for i = #dexRows, 1, -1 do
         if not isRecentLog(dexRows[i]) then
-            dexIndex[dexRows[i]._key] = nil
             table.remove(dexRows, i)
         end
+    end
+    dexIndex = {}
+    for i, row in ipairs(dexRows) do
+        dexIndex[row._key] = i
     end
     local kept, seen = {}, {}
     local function appendRows(rows)
