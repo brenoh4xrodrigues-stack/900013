@@ -31,6 +31,7 @@ local HEARTBEAT    = 4
 
 -- ===== Dex Finder: fonte adicional via WebSocket =====
 local DEX_WS_URL = "wss://dexapi2.up.railway.app/ws"
+local DEX_LOGS_URL = "https://dexapi2.up.railway.app/logs"
 local DEX_RECONNECT_DELAY = 3
 
 -- ==========================================================
@@ -217,10 +218,16 @@ local function displayTraits(b)
     return clipText(b.traits or b.trait or "No traits", 58)
 end
 
+local function looksLikeRobloxInstanceId(value)
+    local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
+    return text:match("^[%x]+%-%x+%-%x+%-%x+%-%x+$") ~= nil
+end
+
 local function looksLikeDexJobToken(value)
     local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
-    if text:match("^[%x]+%-%x+%-%x+%-%x+%-%x+$") then return true end
-    return #text >= 16 and text:match("^[%w_%-]+$") ~= nil and text:match("[%d_%-]") ~= nil
+    if looksLikeRobloxInstanceId(text) then return true end
+    -- O DEX pode entregar o alvo como Base64 padrão, incluindo `/`, `+` e `=`.
+    return #text >= 16 and #text <= 128 and text:match("^[%w_+/=%%-]+$") ~= nil
 end
 
 local function looksLikeDexPlayerToken(value)
@@ -290,7 +297,10 @@ local function findDexJobId(node, depth)
     for key, value in pairs(node) do
         local keyName = compactKey(key)
         local isJobKey = keyName == "jobid" or keyName == "job" or keyName == "serverid" or
-            keyName == "gameinstanceid" or keyName == "instanceid" or keyName == "serverinstanceid"
+            keyName == "gamejobid" or keyName == "gameinstanceid" or keyName == "gameinstance" or
+            keyName == "rawjobid" or keyName == "targetjobid" or keyName == "serverjobid" or
+            keyName == "rawserverid" or keyName == "instanceid" or keyName == "serverinstanceid" or
+            keyName == "serverinstance"
         if isJobKey then
             if type(value) == "table" then
                 local nested = findDexJobId(value, (depth or 0) + 1)
@@ -302,6 +312,11 @@ local function findDexJobId(node, depth)
         elseif type(value) == "table" then
             local nested = findDexJobId(value, (depth or 0) + 1)
             if nested ~= "" then return nested end
+        elseif type(value) == "string" then
+            -- Também cobre arrays como {"N/A", "<job-id>"} e payloads
+            -- que guardam o alias dentro de uma lista sem nome de campo.
+            local candidate = usableJobText(value)
+            if looksLikeDexJobToken(candidate) then return candidate end
         end
     end
     return ""
@@ -331,11 +346,13 @@ local function normalizeRow(row, source)
     if name == "" or value <= 0 then return nil end
 
     local rawServer = rowField(row, "server_id", "serverId", "server", "jobId", "job_id", "job",
-        "gameJobId", "gameInstanceId", "game_instance_id", "serverInstanceId", "server_instance_id",
-        "instanceId", "instance_id", "instance")
+        "gameJobId", "gameInstanceId", "game_instance_id", "rawJobId", "raw_job_id",
+        "targetJobId", "target_job_id", "serverJobId", "server_job_id", "rawServerId", "raw_server_id",
+        "serverInstanceId", "server_instance_id", "instanceId", "instance_id", "instance")
     if type(rawServer) == "table" then
         rawServer = rowField(rawServer, "id", "value", "server_id", "serverId", "jobId", "job_id", "job",
-            "gameInstanceId", "game_instance_id", "instanceId", "instance_id")
+            "gameInstanceId", "game_instance_id", "rawJobId", "raw_job_id", "targetJobId", "target_job_id",
+            "serverJobId", "server_job_id", "instanceId", "instance_id")
     end
     local rawPlace = rowField(row, "place_id", "placeId", "place", "gameId", "game_id", "experienceId")
     if type(rawPlace) == "table" then
@@ -345,11 +362,19 @@ local function normalizeRow(row, source)
     if detectedSource == "" then detectedSource = source or "SCANNER" end
 
     local serverText = usableJobText(rawServer)
-    local instanceText = usableJobText(rowField(row, "gameInstanceId", "game_instance_id", "instanceId", "instance_id"))
-    if serverText == "" then serverText = instanceText end
-    if source == "DEX" then
-        local nestedJobId = findDexJobId(row, 0)
-        if nestedJobId ~= "" then serverText = nestedJobId end
+    local instanceText = usableJobText(rowField(row, "gameInstanceId", "game_instance_id", "instanceId", "instance_id",
+        "rawJobId", "raw_job_id", "targetJobId", "target_job_id", "serverJobId", "server_job_id"))
+    local nestedJobId = findDexJobId(row, 0)
+    if looksLikeRobloxInstanceId(instanceText) then
+        -- O UUID bruto é o instanceId aceito pelo Roblox; não o substitua
+        -- por um token codificado encontrado em outro alias.
+        serverText = instanceText
+    elseif nestedJobId ~= "" then
+        -- `server_id` pode chegar como N/A enquanto jobId/gameInstanceId
+        -- válido está em outro alias ou dentro de um objeto aninhado.
+        serverText = nestedJobId
+    elseif serverText == "" then
+        serverText = instanceText
     end
     if serverText == "" and looksLikeDexJobToken(cleanText(row.external_id)) then
         serverText = cleanText(row.external_id)
@@ -795,42 +820,74 @@ local function rowJobId(b)
     local candidates = {
         b.job_id, b.server_id, b.serverId, b.jobId,
         b.gameInstanceId, b.game_instance_id, b.instanceId, b.instance_id,
+        b.gameJobId, b.game_job_id, b.rawJobId, b.raw_job_id, b.targetJobId, b.target_job_id,
+        b.serverJobId, b.server_job_id, b.serverInstanceId, b.server_instance_id,
     }
+    local fallback
     for _, candidate in ipairs(candidates) do
         local id = cleanId(candidate)
         local lowered = string.lower(id)
         if id ~= "" and id ~= tostring(game.JobId) and lowered ~= "none" and lowered ~= "nil" and
-            lowered ~= "n/a" and lowered ~= "unavailable" and lowered ~= "not received" then
-            return id
+            lowered ~= "n/a" and lowered ~= "na" and lowered ~= "unavailable" and lowered ~= "not received" and
+            looksLikeDexJobToken(id) then
+            -- Se os dois aliases vierem juntos, o UUID bruto tem precedência
+            -- sobre um token codificado ou código alternativo.
+            if looksLikeRobloxInstanceId(id) then return id end
+            fallback = fallback or id
         end
     end
+    if fallback then return fallback end
+    -- A resposta DEX pode manter o valor acima como N/A e colocar o ID real
+    -- em outro alias ou dentro de server/job/instance.
+    local nested = findDexJobId(b, 0)
+    if nested ~= "" and nested ~= tostring(game.JobId) then return nested end
     return nil
 end
 
+local function isRobloxInstanceId(value)
+    return looksLikeRobloxInstanceId(cleanId(value))
+end
+
 local function rowPlaceId(b)
-    local id = tonumber(cleanId(b and (b.place_id or b.placeId)))
+    local raw = b and (b.place_id or b.placeId or b.gameId or b.game_id or
+        b.experienceId or b.experience_id or b.universeId or b.universe_id)
+    local id = tonumber(cleanId(raw))
     return (id and id > 0) and id or game.PlaceId
 end
 
-local function requestTeleport(b, reason)
+local function requestTeleport(b, reason, preferredMode)
     local jobId = rowJobId(b)
     if not jobId then return false, "missing-server" end
     if teleportBusy or os.clock() < teleportNextAt then return false, "cooldown" end
 
     local placeId = rowPlaceId(b)
+    -- O valor do log é o alvo oficial do DEX. Não o converter em access code
+    -- nem alternar o método, porque isso muda o destino e quebra o Join.
+    local mode = "instance"
     teleportBusy = true
     teleportNextAt = os.clock() + 7
-    teleportTarget = { place_id = placeId, server_id = jobId, row = b, reason = reason or "manual" }
+    teleportTarget = {
+        place_id = placeId,
+        server_id = jobId,
+        row = b,
+        mode = mode,
+        reason = reason or "manual",
+    }
     teleportAttempt = teleportAttempt + 1
 
     local attempt = teleportAttempt
+    warn("[Meowlzz] teleport target=" .. tostring(jobId) .. " mode=" .. tostring(mode) ..
+        " reason=" .. tostring(reason or "manual"))
     local ok, err = pcall(function()
+        -- Join manual, notificações, Auto Joiner e Auto Force usam exatamente
+        -- o mesmo job ID publicado pelo log DEX.
         TeleportService:TeleportToPlaceInstance(placeId, jobId, LP)
     end)
     if not ok then
         teleportBusy = false
         teleportNextAt = os.clock() + 1.5
-        warn("[Meowlzz] TeleportToPlaceInstance falhou:", tostring(err))
+        warn("[Meowlzz] teleport method=" .. tostring(mode) .. " failed:", tostring(err),
+            "target=", tostring(jobId))
         return false, tostring(err)
     end
     task.delay(8, function()
@@ -838,8 +895,9 @@ local function requestTeleport(b, reason)
             teleportBusy = false
             teleportNextAt = os.clock() + 0.2
             if autoForce or autoJoin then
-                local retryRow = teleportTarget and teleportTarget.row
-                if retryRow then requestTeleport(retryRow, "watchdog-retry") end
+                local retryTarget = teleportTarget
+                local retryRow = retryTarget and retryTarget.row
+                if retryRow then requestTeleport(retryRow, "watchdog-retry", retryTarget.mode) end
             end
         end
     end)
@@ -1094,8 +1152,10 @@ end
 
 local function looksLikeDexJobId(value)
     local text = cleanText(value):gsub("^%s+", ""):gsub("%s+$", "")
-    if text:match("^[%x]+%-%x+%-%x+%-%x+%-%x+$") then return true end
-    return #text >= 16 and text:match("^[%w_%-]+$") ~= nil
+    if looksLikeRobloxInstanceId(text) then return true end
+    -- Aceita Base64 padrão e URL-safe; sem isso tokens com `/` ou `+` viravam
+    -- mutation/traits e o botão recebia `N/A`.
+    return #text >= 16 and #text <= 128 and text:match("^[%w_+/=%%-]+$") ~= nil
 end
 
 local function looksLikeDexPlayers(value)
@@ -1194,7 +1254,9 @@ local function parseDexDelimitedMessage(message)
 
     for i = #plain, 1, -1 do
         local value = plain[i]
-        if looksLikeDexJobId(value) and (not row.server_id or row.server_id == "") then
+        local currentJobId = usableJobText(row.server_id)
+        if looksLikeDexJobId(value) and (currentJobId == "" or
+            (looksLikeRobloxInstanceId(value) and not looksLikeRobloxInstanceId(currentJobId))) then
             row.server_id = value
             table.remove(plain, i)
         elseif looksLikeDexPlayers(value) and row.player_count == nil then
@@ -1245,8 +1307,17 @@ local function decodeDexMessage(message)
         local row = parseDexDelimitedMessage(decoded)
         if row then table.insert(rows, row) end
     else
-        local row = parseDexDelimitedMessage(message)
-        if row then table.insert(rows, row) end
+        -- `/logs` do DEX entrega uma linha por pet. Não juntar todas as linhas
+        -- em um único registro, pois isso fazia o job ID ficar associado ao
+        -- pet errado ou desaparecer no parsing.
+        for line in tostring(message):gmatch("[^\r\n]+") do
+            local row = parseDexDelimitedMessage(line)
+            if row then table.insert(rows, row) end
+        end
+        if #rows == 0 then
+            local row = parseDexDelimitedMessage(message)
+            if row then table.insert(rows, row) end
+        end
     end
     return rows
 end
@@ -1339,7 +1410,7 @@ local function forwardDexRows(rows)
     end)
 end
 
-local function acceptDexMessage(message)
+local function acceptDexMessage(message, relayToMeowlzz)
     pcall(function()
         print("[Meowlzz Dex][RAW]", tostring(message))
     end)
@@ -1372,7 +1443,9 @@ local function acceptDexMessage(message)
             dexIndex[row._key] = #dexRows
         end
     end
-    forwardDexRows(rows)
+    if relayToMeowlzz ~= false then
+        forwardDexRows(rows)
+    end
     dexStatus = "OK"
     renderCombinedRows()
 end
@@ -1411,7 +1484,23 @@ local function startDexSocket()
     end)
 end
 
+local dexHttpBusy = false
+local function refreshDexHttpLogs()
+    if dexHttpBusy then return end
+    dexHttpBusy = true
+    local raw, httpStatus = httpGet(DEX_LOGS_URL)
+    if raw and raw ~= "" then
+        -- O Finder usa exatamente o identificador que o DEX publica nos logs;
+        -- não reenvia esses registros ao Meowlzz para não criar duplicatas.
+        acceptDexMessage(raw, false)
+    elseif httpStatus then
+        warn("[Meowlzz Dex] /logs HTTP", tostring(httpStatus))
+    end
+    dexHttpBusy = false
+end
+
 local function refresh()
+    task.spawn(refreshDexHttpLogs)
     local raw, httpStatus = httpGet(API_URL(threshold()))
     if not raw then
         scannerStatus = httpStatus and ("HTTP " .. tostring(httpStatus)) or "OFFLINE"
@@ -1518,14 +1607,19 @@ end
 
 -- Se o Roblox rejeitar o destino, libera o alvo e agenda uma nova tentativa.
 local function retryTeleportAfterFailure(message)
+    local failedTarget = teleportTarget
     teleportBusy = false
     teleportNextAt = os.clock() + (autoForce and 0.35 or 1.2)
-    warn("[Meowlzz] teleport falhou:", tostring(message or "unknown"))
-    if autoForce or autoJoin then
+    warn("[Meowlzz] teleport falhou:", tostring(message or "unknown"),
+        "target=", tostring(failedTarget and failedTarget.server_id),
+        "mode=", tostring(failedTarget and failedTarget.mode))
+    if autoJoin or autoForce then
         task.delay(autoForce and 0.4 or 1.3, function()
             if not gui.Parent then return end
-            local b = (teleportTarget and teleportTarget.row) or bestRow()
-            if b then requestTeleport(b, autoForce and "auto-force-retry" or "auto-join-retry") end
+            local target = failedTarget or teleportTarget
+            local b = (target and target.row) or bestRow()
+            if not b then return end
+            requestTeleport(b, autoForce and "auto-force-retry" or "auto-join-retry", "instance")
         end)
     end
 end
