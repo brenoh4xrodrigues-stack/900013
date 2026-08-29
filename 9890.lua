@@ -646,7 +646,7 @@ railFoot.TextColor3 = DIM
 railFoot.Parent = rail
 
 -- ===== updates page: mensagem pública única, sem detalhes internos =====
-local UPDATE_PROGRESS_TARGET = 30 -- mudar para 100 somente quando solicitado
+local UPDATE_PROGRESS_TARGET = 42
 local updateProgressFill
 local updateProgressText
 
@@ -673,7 +673,7 @@ updateTitle.BackgroundTransparency = 1
 updateTitle.Position = UDim2.new(0, 12, 0, 10)
 updateTitle.Size = UDim2.new(1, -24, 0, 18)
 updateTitle.Font = Enum.Font.GothamBold
-updateTitle.Text = "Add + bots"
+updateTitle.Text = "Add New Bots, And Fixing bugs"
 updateTitle.TextSize = 12
 updateTitle.TextColor3 = GOLD_SOFT
 updateTitle.TextXAlignment = Enum.TextXAlignment.Left
