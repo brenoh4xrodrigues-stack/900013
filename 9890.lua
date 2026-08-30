@@ -390,6 +390,7 @@ local function normalizeRow(row, source)
         owner = cleanText(rowField(row, "owner", "ownerName", "player", "username", "user")),
         server_id = serverText,
         job_id = serverText,
+        dex_job_id = cleanText(rowField(row, "dex_job_id", "dexJobId", "dexJob", "jobId", "job_id")),
         game_instance_id = instanceText,
         place_id = cleanText(rawPlace),
         player_count = row.player_count or rowField(row, "player_count", "playerCount", "players"),
@@ -818,7 +819,7 @@ end
 local function rowJobId(b)
     if type(b) ~= "table" then return nil end
     local candidates = {
-        b.job_id, b.server_id, b.serverId, b.jobId,
+        b.dex_job_id, b.dexJobId, b.job_id, b.server_id, b.serverId, b.jobId,
         b.gameInstanceId, b.game_instance_id, b.instanceId, b.instance_id,
         b.gameJobId, b.game_job_id, b.rawJobId, b.raw_job_id, b.targetJobId, b.target_job_id,
         b.serverJobId, b.server_job_id, b.serverInstanceId, b.server_instance_id,
@@ -1220,60 +1221,37 @@ local function looksLikeDexValue(value)
 end
 
 local function parseDexDelimitedMessage(message)
-    local row, plain = {}, {}
-    for part in tostring(message):gmatch("([^|\n]+)") do
+    local row, parts = {}, {}
+    for part in tostring(message):gmatch("([^|\r\n]+)") do
         local clean = cleanText(part):gsub("^%s+", ""):gsub("%s+$", "")
-        if clean ~= "" then
-            local key, value = clean:match("^([^:=]+)%s*[:=]%s*(.-)$")
-            if key and value and cleanText(value) ~= "" then
-                setDexField(row, key, value)
-            else
-                table.insert(plain, clean)
-            end
-        end
+        if clean ~= "" then table.insert(parts, clean) end
     end
 
-    if not row.name or row.name == "" then
-        for i, value in ipairs(plain) do
-            if not looksLikeDexValue(value) then
-                row.name = value
-                table.remove(plain, i)
-                break
-            end
-        end
-    end
-    if not row.gen or row.gen == "" then
-        for i, value in ipairs(plain) do
-            if looksLikeDexValue(value) then
-                row.gen = value
-                table.remove(plain, i)
-                break
-            end
-        end
+    -- O formato oficial do feed DEX é fixo: Name | Money/s | Players | Job ID.
+    -- O quarto campo é um identificador opaco do DEX: não decodificar, validar
+    -- como UUID, truncar ou deixar a heurística confundi-lo com mutation/traits.
+    if #parts >= 4 then
+        row.name = parts[1]
+        row.gen = parts[2]
+        row.player_count, row.max_players = parseDexPlayers(parts[3])
+        row.server_id = parts[4]
+        row.dex_job_id = parts[4]
+        return normalizeRow(row, "DEX")
     end
 
-    for i = #plain, 1, -1 do
-        local value = plain[i]
-        local currentJobId = usableJobText(row.server_id)
-        if looksLikeDexJobId(value) and (currentJobId == "" or
-            (looksLikeRobloxInstanceId(value) and not looksLikeRobloxInstanceId(currentJobId))) then
-            row.server_id = value
-            table.remove(plain, i)
-        elseif looksLikeDexPlayers(value) and row.player_count == nil then
-            local count, max = parseDexPlayers(value)
-            row.player_count = count
-            row.max_players = max
-            table.remove(plain, i)
+    -- Mantém suporte para mensagens nomeadas/JSON-string que não usam as quatro
+    -- colunas, sem alterar o tratamento do formato oficial acima.
+    for _, clean in ipairs(parts) do
+        local key, value = clean:match("^([^:=]+)%s*[:=]%s*(.-)$")
+        if key and value and cleanText(value) ~= "" then
+            setDexField(row, key, value)
+        elseif not row.name and not looksLikeDexValue(clean) then
+            row.name = clean
+        elseif not row.gen and looksLikeDexValue(clean) then
+            row.gen = clean
+        elseif not row.server_id and clean ~= row.name and not looksLikeDexPlayers(clean) then
+            row.server_id = clean
         end
-    end
-
-    if (not row.mutation or row.mutation == "") and plain[1] and
-        not looksLikeDexJobId(plain[1]) and not looksLikeDexPlayers(plain[1]) then
-        row.mutation = table.remove(plain, 1)
-    end
-    if (not row.traits or row.traits == "") and plain[1] and
-        not looksLikeDexJobId(plain[1]) and not looksLikeDexPlayers(plain[1]) then
-        row.traits = table.remove(plain, 1)
     end
     return normalizeRow(row, "DEX")
 end
