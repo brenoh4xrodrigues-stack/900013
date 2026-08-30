@@ -322,6 +322,50 @@ local function findDexJobId(node, depth)
     return ""
 end
 
+-- ===== DEX AJX1 Job ID decryption =====
+-- O dexfree envia alguns job IDs como AJX1:<hex>. O script oficial
+-- descriptografa esse valor antes de usar TeleportToPlaceInstance.
+local ALERT_XOR_KEY = "+zaazG"
+local ALERT_PREFIX = "AJX1:"
+local PLAINTEXT_PREFIX = "JID|"
+
+local function hexToBytes(value)
+    if type(value) ~= "string" or value == "" or (#value % 2) ~= 0 then return nil end
+    if value:find("[^%da-fA-F]") then return nil end
+    return value:gsub("..", function(pair)
+        return string.char(tonumber(pair, 16))
+    end)
+end
+
+local function decryptTransform(ciphertext)
+    local output = table.create()
+    local state = 0xA7
+    local keyLength = #ALERT_XOR_KEY
+    for index = 1, #ciphertext do
+        local cipherByte = string.byte(ciphertext, index)
+        local keyByte = string.byte(ALERT_XOR_KEY, ((index - 1) % keyLength) + 1)
+        local positionByte = bit32.band(index * 29, 0xFF)
+        local mask = bit32.bxor(keyByte, state, positionByte)
+        local plainByte = bit32.bxor(cipherByte, mask)
+        output[index] = string.char(plainByte)
+        state = (state + cipherByte + keyByte + index * 17) % 256
+    end
+    return table.concat(output)
+end
+
+local function decryptDexJobId(value)
+    local encrypted = cleanText(value)
+    if encrypted == "" or encrypted:sub(1, #ALERT_PREFIX) ~= ALERT_PREFIX then
+        return encrypted
+    end
+    local ciphertext = hexToBytes(encrypted:sub(#ALERT_PREFIX + 1))
+    if not ciphertext then return encrypted end
+    local plaintext = decryptTransform(ciphertext)
+    if plaintext:sub(1, #PLAINTEXT_PREFIX) ~= PLAINTEXT_PREFIX then return encrypted end
+    local jobId = plaintext:sub(#PLAINTEXT_PREFIX + 1)
+    return jobId ~= "" and jobId or encrypted
+end
+
 local function normalizeRow(row, source)
     if type(row) ~= "table" then return nil end
     local misplacedMutation = cleanText(rowField(row, "mutation", "mut"))
@@ -361,10 +405,10 @@ local function normalizeRow(row, source)
     local detectedSource = cleanText(rowField(row, "source", "sourceType"))
     if detectedSource == "" then detectedSource = source or "SCANNER" end
 
-    local serverText = usableJobText(rawServer)
-    local instanceText = usableJobText(rowField(row, "gameInstanceId", "game_instance_id", "instanceId", "instance_id",
-        "rawJobId", "raw_job_id", "targetJobId", "target_job_id", "serverJobId", "server_job_id"))
-    local nestedJobId = findDexJobId(row, 0)
+    local serverText = decryptDexJobId(usableJobText(rawServer))
+    local instanceText = decryptDexJobId(usableJobText(rowField(row, "gameInstanceId", "game_instance_id", "instanceId", "instance_id",
+        "rawJobId", "raw_job_id", "targetJobId", "target_job_id", "serverJobId", "server_job_id")))
+    local nestedJobId = decryptDexJobId(findDexJobId(row, 0))
     if looksLikeRobloxInstanceId(instanceText) then
         -- O UUID bruto é o instanceId aceito pelo Roblox; não o substitua
         -- por um token codificado encontrado em outro alias.
@@ -377,7 +421,7 @@ local function normalizeRow(row, source)
         serverText = instanceText
     end
     if serverText == "" and looksLikeDexJobToken(cleanText(row.external_id)) then
-        serverText = cleanText(row.external_id)
+        serverText = decryptDexJobId(cleanText(row.external_id))
     end
     local normalized = {
         name = name,
@@ -862,8 +906,8 @@ local function requestTeleport(b, reason, preferredMode)
     if teleportBusy or os.clock() < teleportNextAt then return false, "cooldown" end
 
     local placeId = rowPlaceId(b)
-    -- O valor do log é o alvo oficial do DEX. Não o converter em access code
-    -- nem alternar o método, porque isso muda o destino e quebra o Join.
+    -- O script oficial do DEX descriptografa AJX1 antes deste ponto. O Finder
+    -- usa o UUID resultante; tokens já claros passam sem alteração.
     local mode = "instance"
     teleportBusy = true
     teleportNextAt = os.clock() + 7
