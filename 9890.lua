@@ -19,7 +19,7 @@ if not LP then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LP = Playe
 -- O valor precisa corresponder ao SCANNER_API_KEY configurado no servidor.
 -- A chave é enviada na URL porque game:HttpGet não envia headers customizados.
 local API_BASE = "https://meowlzz-soft-notify-production.up.railway.app/api/public/best"
-local DEX_RECEIVE_URL = "https://meowlzz-soft-notify-production.up.railway.app/api/public/dex-receive"
+local DEX_RECEIVE_URL = "https://meowlzz2-notify.up.railway.app/api/public/dex-receive"
 local local_KeyScanner = "Mz_71f7f603ce017f6d642234d86fe78c2b9e7f4d6626e51f1bfa265be7c9b5a4b4"
 local function API_URL(minGen)
     return API_BASE .. "?key=" .. HttpService:UrlEncode(local_KeyScanner) ..
